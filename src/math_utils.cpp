@@ -426,15 +426,6 @@ NiQuaternion slerp(const NiQuaternion &qa, const NiQuaternion &qb, double t)
     NiQuaternion qm;
     // Calculate angle between them.
     float cosHalfTheta = DotProduct(qa, qb);
-    // if qa=qb or qa=-qb then theta = 0 and we can return qb
-    if (fabs(cosHalfTheta) >= 0.99999) { // I actually experimentally determined this value. The value where I got this code was 0.9995 which is way too low for small angles
-        qm.m_fW = qb.m_fW;
-        qm.m_fX = qb.m_fX;
-        qm.m_fY = qb.m_fY;
-        qm.m_fZ = qb.m_fZ;
-        return qm;
-    }
-
     // If the dot product is negative, slerp won't take
     // the shorter path. Note that qb and -qb are equivalent when
     // the negation is applied to all four components. Fix by 
@@ -446,6 +437,14 @@ NiQuaternion slerp(const NiQuaternion &qa, const NiQuaternion &qb, double t)
         q2.m_fY *= -1;
         q2.m_fZ *= -1;
         cosHalfTheta *= -1;
+    }
+
+    if (cosHalfTheta >= 0.99999) {
+        qm.m_fW = qa.m_fW + t * (q2.m_fW - qa.m_fW);
+        qm.m_fX = qa.m_fX + t * (q2.m_fX - qa.m_fX);
+        qm.m_fY = qa.m_fY + t * (q2.m_fY - qa.m_fY);
+        qm.m_fZ = qa.m_fZ + t * (q2.m_fZ - qa.m_fZ);
+        return QuaternionNormalized(qm);
     }
 
     // Calculate temporary values.
