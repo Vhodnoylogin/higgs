@@ -20,6 +20,7 @@ void HapticsManager::QueueHapticEvent(float startStrength, float endStrength, fl
     hapticEvent.startStrength = startStrength;
     hapticEvent.endStrength = endStrength;
     hapticEvent.duration = duration;
+    hapticEvent.startTime = GetTime();
     hapticEvent.isNew = true;
 
     {
