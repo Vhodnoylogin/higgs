@@ -1,6 +1,7 @@
 #pragma once
 
 #include <atomic>
+#include <memory>
 #include <mutex>
 #include <vector>
 
@@ -76,21 +77,21 @@ namespace HiggsPluginAPI {
 
 
         std::mutex addCallbackLock;
-        std::vector<PulledCallback> pulledCallbacks;
-        std::vector<GrabbedCallback> grabbedCallbacks;
-        std::vector<DroppedCallback> droppedCallbacks;
-        std::vector<StashedCallback> stashedCallbacks;
-        std::vector<ConsumedCallback> consumedCallbacks;
-        std::vector<CollisionCallback> collisionCallbacks;
-        std::vector<StartTwoHandingCallback> startTwoHandingCallbacks;
-        std::vector<StopTwoHandingCallback> stopTwoHandingCallbacks;
-        std::vector<CollisionFilterComparisonCallback> collisionFilterComparisonCallbacks;
-        std::vector<PrePhysicsStepCallback> prePhysicsStepCallbacks;
+        std::atomic<std::shared_ptr<const std::vector<PulledCallback>>> pulledCallbacks{ std::make_shared<const std::vector<PulledCallback>>() };
+        std::atomic<std::shared_ptr<const std::vector<GrabbedCallback>>> grabbedCallbacks{ std::make_shared<const std::vector<GrabbedCallback>>() };
+        std::atomic<std::shared_ptr<const std::vector<DroppedCallback>>> droppedCallbacks{ std::make_shared<const std::vector<DroppedCallback>>() };
+        std::atomic<std::shared_ptr<const std::vector<StashedCallback>>> stashedCallbacks{ std::make_shared<const std::vector<StashedCallback>>() };
+        std::atomic<std::shared_ptr<const std::vector<ConsumedCallback>>> consumedCallbacks{ std::make_shared<const std::vector<ConsumedCallback>>() };
+        std::atomic<std::shared_ptr<const std::vector<CollisionCallback>>> collisionCallbacks{ std::make_shared<const std::vector<CollisionCallback>>() };
+        std::atomic<std::shared_ptr<const std::vector<StartTwoHandingCallback>>> startTwoHandingCallbacks{ std::make_shared<const std::vector<StartTwoHandingCallback>>() };
+        std::atomic<std::shared_ptr<const std::vector<StopTwoHandingCallback>>> stopTwoHandingCallbacks{ std::make_shared<const std::vector<StopTwoHandingCallback>>() };
+        std::atomic<std::shared_ptr<const std::vector<CollisionFilterComparisonCallback>>> collisionFilterComparisonCallbacks{ std::make_shared<const std::vector<CollisionFilterComparisonCallback>>() };
+        std::atomic<std::shared_ptr<const std::vector<PrePhysicsStepCallback>>> prePhysicsStepCallbacks{ std::make_shared<const std::vector<PrePhysicsStepCallback>>() };
 
-        std::vector<NoArgCallback> preVrikPreHiggsCallbacks;
-        std::vector<NoArgCallback> preVrikPostHiggsCallbacks;
-        std::vector<NoArgCallback> postVrikPreHiggsCallbacks;
-        std::vector<NoArgCallback> postVrikPostHiggsCallbacks;
+        std::atomic<std::shared_ptr<const std::vector<NoArgCallback>>> preVrikPreHiggsCallbacks{ std::make_shared<const std::vector<NoArgCallback>>() };
+        std::atomic<std::shared_ptr<const std::vector<NoArgCallback>>> preVrikPostHiggsCallbacks{ std::make_shared<const std::vector<NoArgCallback>>() };
+        std::atomic<std::shared_ptr<const std::vector<NoArgCallback>>> postVrikPreHiggsCallbacks{ std::make_shared<const std::vector<NoArgCallback>>() };
+        std::atomic<std::shared_ptr<const std::vector<NoArgCallback>>> postVrikPostHiggsCallbacks{ std::make_shared<const std::vector<NoArgCallback>>() };
 
         std::atomic<bool> isRightHandDisabled = false;
         std::atomic<bool> isLeftHandDisabled = false;
