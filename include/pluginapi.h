@@ -93,16 +93,9 @@ namespace HiggsPluginAPI {
         std::atomic<std::shared_ptr<const std::vector<NoArgCallback>>> postVrikPreHiggsCallbacks{ std::make_shared<const std::vector<NoArgCallback>>() };
         std::atomic<std::shared_ptr<const std::vector<NoArgCallback>>> postVrikPostHiggsCallbacks{ std::make_shared<const std::vector<NoArgCallback>>() };
 
-        std::atomic<bool> isRightHandDisabled = false;
-        std::atomic<bool> isLeftHandDisabled = false;
-
-        std::atomic<bool> isRightWeaponCollisionDisabled = false;
-        std::atomic<bool> isLeftWeaponCollisionDisabled = false;
-
         // Same as L_WEAPON layer, but + self-collision (layer 56) and - charcontroller collision
         UInt64 higgsLayerBitfield = 0x01053343161b7fff;
 
-        bool forceEnableWeaponCollision[2]{ false, false };
     };
 
     void TriggerPulledCallbacks(bool isLeft, TESObjectREFR *pulledRefr);

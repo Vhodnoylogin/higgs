@@ -36,6 +36,7 @@
 #include "vrikinterface001.h"
 #include "papyrusapi.h"
 #include "pluginapi.h"
+#include "synergy_runtime.h"
 #include "math_utils.h"
 #include "physics.h"
 #include "main.h"
@@ -522,18 +523,27 @@ void Update()
     if (!initComplete) return;
 
     PlayerCharacter *player = *g_thePlayer;
-    if (!player || !player->GetNiNode()) return;
+    if (!player || !player->GetNiNode()) {
+        HiggsSynergy::ObserveWorld(0);
+        return;
+    }
 
     g_currentFrameTime = GetTime();
 
     TESObjectCELL *cell = player->parentCell;
-    if (!cell) return;
+    if (!cell) {
+        HiggsSynergy::ObserveWorld(0);
+        return;
+    }
 
     NiPointer<bhkWorld> world = GetHavokWorldFromCell(cell);
     if (!world) {
+        HiggsSynergy::ObserveWorld(0);
         _MESSAGE("Could not get havok world from player cell");
         return;
     }
+    // No core lock is retained while touching engine objects below.
+    HiggsSynergy::ObserveWorld(reinterpret_cast<std::uintptr_t>(world.operator->()));
 
     bool reloadConfig = Config::options.reloadConfigIfModified;
 #ifdef _DEBUG
@@ -1092,6 +1102,15 @@ extern "C" {
             }
             else if (msg->type == SKSEMessagingInterface::kMessage_DataLoaded) {
                 OnDataLoaded();
+            }
+            else if (msg->type == SKSEMessagingInterface::kMessage_PreLoadGame) {
+                HiggsSynergy::BeginGameLoad();
+            }
+            else if (msg->type == SKSEMessagingInterface::kMessage_PostLoadGame) {
+                HiggsSynergy::EndGameLoad();
+            }
+            else if (msg->type == SKSEMessagingInterface::kMessage_NewGame) {
+                HiggsSynergy::NewGame();
             }
             else if (msg->type == SKSEMessagingInterface::kMessage_PostLoad) {
                 // Register our own mod api listener

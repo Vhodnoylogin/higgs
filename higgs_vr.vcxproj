@@ -217,6 +217,8 @@
     <ClCompile Include="src\physics.cpp" />
     <ClCompile Include="src\effects.cpp" />
     <ClCompile Include="src\pluginapi.cpp" />
+    <ClCompile Include="src\synergy_core.cpp" />
+    <ClCompile Include="src\synergy_runtime.cpp" />
     <ClCompile Include="src\RE\havok.cpp" />
     <ClCompile Include="src\RE\offsets.cpp" />
     <ClCompile Include="src\utils.cpp" />
@@ -232,6 +234,10 @@
     <ClInclude Include="include\main.h" />
     <ClInclude Include="include\papyrusapi.h" />
     <ClInclude Include="include\pluginapi.h" />
+    <ClInclude Include="include\higgssynergy.h" />
+    <ClInclude Include="include\synergy_core.h" />
+    <ClInclude Include="include\synergy_policy.h" />
+    <ClInclude Include="include\synergy_runtime.h" />
     <ClInclude Include="include\config.h" />
     <ClInclude Include="include\hand.h" />
     <ClInclude Include="include\havok_ref_ptr.h" />

@@ -4,6 +4,14 @@
 
 This fork's intended architectural direction is described in [the HIGGS synergy requirements](docs/trinity-synergy.md), linked to the full concept maintained only in Body Pouches. HIGGS owns input and physical possession; a separate slot service owns offline authoring and saved definitions, while VRIK handles their runtime binding and interactions. These are proposed services, not a released API or an agreement with the framework authors.
 
+## Scoped hand and weapon collision restrictions
+
+This development fork implements a separate, negotiated [restriction service](docs/scoped-restrictions.md) for physical left/right hands. Consumers can acquire, renew and release bounded restrictions without clearing another consumer's lease. The existing 001 header and vtable remain unchanged. A scoped hand restriction blocks new interactions while preserving existing possession; collision suppression takes precedence over collision force requests.
+
+The production service and its copied C ABI pass standalone ownership, lifecycle, concurrency and compatibility checks. Full native-plugin integration has not been built or tested in Skyrim: the existing project requires external SKSE/Havok dependencies. This is an admission and collision restriction service; input arbitration, committed action reservations, climbing/harvesting gameplay and transfer APIs remain proposals.
+
+Run the standalone checks with `python tests/run_tests.py --build-dir <external-output-directory>`. The tests compile the actual production core and ABI adapter, including a C consumer, without SKSE or Havok. See the service documentation for its lifetime, renewal and threading contract.
+
 This mod is complicated.
 
 To build from source, it requires object definitions / headers similar to those belonging to havok 2010.2. I will not be providing these, nor do I claim to have them myself.

@@ -23,6 +23,7 @@
 #include "finger_curves.h"
 #include "hooks.h"
 #include "pluginapi.h"
+#include "synergy_runtime.h"
 #include "main.h"
 #include "constraint.h"
 
@@ -860,12 +861,11 @@ void Hand::UpdateWeaponCollision()
         return;
     }
 
-    bool shouldDisableCollision = !player->actorState.IsWeaponDrawn() || g_interface001.IsWeaponCollisionDisabled(isLeft);
-    if (!g_interface001.forceEnableWeaponCollision[isLeft]) {
-        float timeElapsedSinceWeaponHit = g_currentFrameTime - weaponHitTime;
-        bool disableDueToHit = timeElapsedSinceWeaponHit >= Config::options.weaponCollisionDisableOnHitDelay && timeElapsedSinceWeaponHit < (Config::options.weaponCollisionDisableOnHitTime + Config::options.weaponCollisionDisableOnHitDelay);
-        shouldDisableCollision |= disableDueToHit;
-    }
+    const auto restrictions = HiggsSynergy::CopyHandState(isLeft);
+    float timeElapsedSinceWeaponHit = g_currentFrameTime - weaponHitTime;
+    bool disableDueToHit = timeElapsedSinceWeaponHit >= Config::options.weaponCollisionDisableOnHitDelay && timeElapsedSinceWeaponHit < (Config::options.weaponCollisionDisableOnHitTime + Config::options.weaponCollisionDisableOnHitDelay);
+    bool shouldDisableCollision = HiggsSynergy::ShouldDisableWeaponCollision(restrictions,
+        player->actorState.IsWeaponDrawn(), disableDueToHit);
 
     bool wasCollisionDisabled = (weaponBody->hkBody->m_collidable.m_broadPhaseHandle.m_collisionFilterInfo >> 14 & 1) != 0;
 
@@ -2392,7 +2392,7 @@ void Hand::Update(Hand &other, bhkWorld *world)
 
     if (state == State::GrabFromOtherHand) {
         NiPointer<TESObjectREFR> selectedObj;
-        if (LookupREFRByHandle(selectedObject.handle, selectedObj)) {
+        if (isAllowedToHold && LookupREFRByHandle(selectedObject.handle, selectedObj)) {
             TransitionHeld(other, *world, palmPos, palmVector, selectedObject.point, havokWorldScale, handNode, handSize, selectedObj);
         }
         else {
@@ -2401,7 +2401,7 @@ void Hand::Update(Hand &other, bhkWorld *world)
     }
 
     if (state == State::GrabExternal) {
-        if (g_currentFrameTime - grabbedTime > Config::options.lootSpawnInTime) { // wait for the item to spawn in
+        if (!isAllowedToHold || g_currentFrameTime - grabbedTime > Config::options.lootSpawnInTime) { // revalidate admission while waiting for spawn
             state = State::Idle;
         }
         else {
@@ -2757,7 +2757,7 @@ void Hand::Update(Hand &other, bhkWorld *world)
             if (!isTwoHandedOffhand || closestRigidBody != other.weaponBody) {
                 Deselect();
             }
-            else if (grabRequested && g_currentFrameTime - grabRequestedTime <= Config::options.triggerPressedLeewayTime) {
+            else if (canTwoHand && grabRequested && g_currentFrameTime - grabRequestedTime <= Config::options.triggerPressedLeewayTime) {
                 NiPointer<NiAVObject> tpHandNode = other.GetThirdPersonHandNode();
                 NiPointer<NiAVObject> tpWeaponNode = other.GetWeaponNode(true);
 
@@ -2832,7 +2832,7 @@ void Hand::Update(Hand &other, bhkWorld *world)
                 }
                 else {
                     // Check if we should lock in the selection
-                    if (grabRequested && g_currentFrameTime - grabRequestedTime <= Config::options.triggerPressedLeewayTime) {
+                    if (isAllowedToHold && grabRequested && g_currentFrameTime - grabRequestedTime <= Config::options.triggerPressedLeewayTime) {
                         if (state == State::SelectedFar) {
                             hkVector4 translation = selectedObject.rigidBody->hkBody->m_motion.m_motionState.m_transform.m_translation;
                             NiPoint3 hkObjPos = HkVectorToNiPoint(translation);
@@ -2943,8 +2943,12 @@ void Hand::Update(Hand &other, bhkWorld *world)
             idleDesired = true;
         }
 
-        bool shouldStopTwoHanding = IsTwoHanding() && !canTwoHand;
-        bool shouldStopHolding = !IsTwoHanding() && !isAllowedToHold;
+        // A scoped admission restriction does not implicitly release possession.
+        // Legacy DisableHand and equipment changes keep their previous drop behavior.
+        bool shouldStopTwoHanding = IsTwoHanding() && !CanTwoHand(true);
+        bool shouldStopHolding = !IsTwoHanding() && (HasHeldObject() ?
+            (!CanHoldBasedOnWeapon() || !HiggsSynergy::MayContinueHeldInteraction(HiggsSynergy::CopyHandState(isLeft))) :
+            !isAllowedToHold);
         if (shouldStopTwoHanding || shouldStopHolding) {
             idleDesired = true;
         }
@@ -3358,7 +3362,7 @@ void Hand::Update(Hand &other, bhkWorld *world)
     }
 
     if (state == State::PreGrabItem) {
-        if (g_currentFrameTime - grabbedTime > Config::options.lootSpawnInTime) { // wait for the item to spawn in
+        if (!isAllowedToHold || g_currentFrameTime - grabbedTime > Config::options.lootSpawnInTime) { // revalidate pending acquisition
             state = State::Idle;
         }
         else {
@@ -3400,7 +3404,7 @@ void Hand::Update(Hand &other, bhkWorld *world)
     }
 
     if (state == State::PrePullItem) {
-        if (g_currentFrameTime - pulledTime > Config::options.lootSpawnInTime) { // wait for the item to spawn in
+        if (!isAllowedToHold || g_currentFrameTime - pulledTime > Config::options.lootSpawnInTime) { // revalidate pending pull before spawn commitment
             state = State::Idle;
         }
         else {
@@ -4369,8 +4373,9 @@ bool Hand::CanHoldBasedOnWeapon() const
     return isMainHand ? isMainValid : isOffhandValid;
 }
 
-bool Hand::CanTwoHand() const
+bool Hand::CanTwoHand(bool continuingExisting) const
 {
+    if (!continuingExisting && !HiggsSynergy::MayStartHandInteraction(HiggsSynergy::CopyHandState(isLeft))) return false;
     if (!Config::options.enableWeaponTwoHanding) return false;
 
     PlayerCharacter *player = *g_thePlayer;

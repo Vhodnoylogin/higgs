@@ -258,7 +258,7 @@ struct Hand
     bool ShouldRestrictTrigger() const;
     bool ShouldNotBlockTrigger() const;
     bool CanHoldObject() const;
-    bool CanTwoHand() const;
+    bool CanTwoHand(bool continuingExisting = false) const;
     bool CanGrabObject() const;
     bool HasHeldObject() const;
     bool CanOtherGrab() const;

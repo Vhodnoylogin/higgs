@@ -54,6 +54,12 @@
     <ClCompile Include="src\pluginapi.cpp">
       <Filter>src</Filter>
     </ClCompile>
+    <ClCompile Include="src\synergy_core.cpp">
+      <Filter>src</Filter>
+    </ClCompile>
+    <ClCompile Include="src\synergy_runtime.cpp">
+      <Filter>src</Filter>
+    </ClCompile>
     <ClCompile Include="src\higgsinterface001.cpp">
       <Filter>src</Filter>
     </ClCompile>
@@ -120,6 +126,18 @@
       <Filter>include</Filter>
     </ClInclude>
     <ClInclude Include="include\pluginapi.h">
+      <Filter>include</Filter>
+    </ClInclude>
+    <ClInclude Include="include\higgssynergy.h">
+      <Filter>include</Filter>
+    </ClInclude>
+    <ClInclude Include="include\synergy_core.h">
+      <Filter>include</Filter>
+    </ClInclude>
+    <ClInclude Include="include\synergy_policy.h">
+      <Filter>include</Filter>
+    </ClInclude>
+    <ClInclude Include="include\synergy_runtime.h">
       <Filter>include</Filter>
     </ClInclude>
     <ClInclude Include="include\higgsinterface001.h">
