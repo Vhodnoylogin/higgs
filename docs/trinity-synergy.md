@@ -1,63 +1,27 @@
 # HIGGS architecture for VRIK HIGGS and PLANCK synergy
 
-The proposed synergy gives Skyrim VR mods a shared foundation with clear owners:
-VRIK provides the player body, spatial hand interpretation and generic zones/slots;
-HIGGS brokers controller input and owns physical hand/item interactions; PLANCK
-owns NPC physical animation, ragdoll lifetime and its physical-hit processing.
-Consumers retain their gameplay and request services from those owners.
+The proposed synergy gives Skyrim VR mods a shared foundation with clear owners. HIGGS brokers grip/trigger input and owns physical hand/item interactions. VRIK interprets hand position, maps anchors onto the actual player body/equipment, handles spatial interactions and renders. PLANCK owns NPC physical animation, ragdoll lifetime and physical-hit processing. Consumers keep their gameplay, inventory-selection and equipment-proxy rules.
 
-The single source of the full concept, including illustrative pseudo-ABI, is
-[the English concept in Body Pouches](https://github.com/Vhodnoylogin/body-pouches/blob/main/docs/trinity-synergy/concept-en.md).
-[The Russian version](https://github.com/Vhodnoylogin/body-pouches/blob/main/docs/trinity-synergy/concept-ru.md)
-is maintained in the same directory. Body Pouches intends to adopt this
-architecture. The services below are proposed changes, not an available SDK or
-an agreement with the framework authors.
+A separate slot service, **Body Slots** as a working name, owns slot creation, stable definitions/instances, local placement and access geometry, generic allowed-content policies and saved customization. Its main workflow is an offline visual editor on a reference body/skeleton/equipment model → editable project and versioned declarative package → slot runtime/API → VRIK binding, hand detection, interaction and presentation. Authoring/export requires neither Skyrim nor VRIK. Keeping the native 14 holsters is an optional compatibility path. The editor and new services are proposals, not implemented features.
+
+The only maintained source of the full concept and illustrative pseudo-ABI is [the English concept in Body Pouches](https://github.com/Vhodnoylogin/body-pouches/blob/main/docs/trinity-synergy/concept-en.md), with [a Russian counterpart](https://github.com/Vhodnoylogin/body-pouches/blob/main/docs/trinity-synergy/concept-ru.md). This file records HIGGS-specific requirements, not another copy of the concept. Body Pouches intends to adopt the architecture; it is not an available SDK or an agreement with the framework authors.
 
 ## Required architectural changes in HIGGS
 
-1. **Broker grip/trigger input before actions execute.** Publish observations with
-   a physical hand and sequence ID. Let VRIK and consumer recognizers submit action
-   candidates before HIGGS defaults act. Resolve one consuming action using visible
-   user priorities, including an explicit integration with the user's mod order.
-   Hold/multi-tap reservations must respect the same priorities and have deadlines.
-   Existing committed hand ownership remains protected.
+1. **Broker grip/trigger before actions execute.** Publish observations with physical hand and sequence ID. Let VRIK and consumer recognizers propose actions before defaults act. Resolve one consuming action using visible user priorities, including an explicit integration with user mod order. Hold/multi-tap reservations respect those priorities and have deadlines; existing committed hand ownership stays protected.
 
-2. **Replace migrated callers' anonymous restrictions with owned leases.** A mod
-   requests suppression for a named hand, feature and lifetime and releases only
-   its own request. This addresses conflicting uses of the current
-   `DisableHand`/`EnableHand` and shared settings. Suppression and an explicit item
-   release must be separate operations.
+2. **Replace anonymous restrictions with owned leases.** Consumers request suppression for a named hand, feature and lifetime and release only their own effects. This replaces migrated uses of shared settings and `DisableHand`/`EnableHand`. Suppression and explicit item release remain separate operations.
 
-3. **Provide requests with confirmed results.** Grab, release, transfer and grip
-   changes need request IDs and distinct accepted, committed, completed, rejected
-   and cancelled stages. Coordinate both hands and item-instance ownership before
-   mutation. For consumer gameplay, report the assigned domain executor's result;
-   forwarding it does not transfer inventory or damage authority to HIGGS.
+3. **Provide correlated requests and confirmed results.** Grab, release, transfer and grip changes distinguish accepted, committed, completed, rejected and cancelled. Coordinate affected hands and item-instance ownership before mutation. Forward the assigned domain executor's receipt without taking over inventory or damage policy. Inventory commitment and physical grip are separate results; retries must not create duplicate items.
 
-4. **Compose physical contributions through one final actuator per owned body.**
-   Offer supported grip, drive and constraint requests so weight, collision,
-   penetration and climbing mods do not overwrite each other's transforms.
-   Report effective acquisition, saturation, break and release. PLANCK validates
-   NPC attachment endpoints; HIGGS applies hand/weapon constraints. Player
-   locomotion and fall rules remain with the climbing consumer.
+4. **Compose physical contributions through one final actuator per owned body.** Support grip, drive and constraint requests for weight, collision, penetration and climbing. Report effective acquisition, saturation, break and release. PLANCK validates NPC endpoints; HIGGS applies hand/weapon constraints. Player locomotion and fall rules remain with the climbing consumer.
 
-5. **Publish coherent copied state.** Expose possession, grip geometry, motion and
-   contacts with source, units, coordinate space, time, frame/physics IDs and body
-   generations. Distinguish tracked controllers, resolved palms and VRIK's rendered
-   hands. Include the version of the tracking-to-world transform.
+5. **Publish coherent copied state.** Expose possession, grip geometry, motion, contacts and release observations with source, units, space, time, frame/physics IDs and body generations. Distinguish tracked controller, resolved palm and VRIK-rendered hand; identify the tracking-to-world transform and the sample VRIK should test against a zone.
 
-6. **Add a versioned lifecycle contract.** Keep interface 001 unchanged. Negotiate
-   new capabilities separately, assign owners and epochs, and support callback
-   removal with confirmed drainage. Apply physical changes at documented safe
-   phases and invalidate pending resources on load or provider shutdown.
+6. **Respect the slot-service/runtime boundary.** Slot definitions and customization belong to Body Slots; current spatial offers, reservations and presentation readiness come from VRIK. HIGGS arbitrates input/hand resources and performs physical requests, while the content executor chooses and commits the item. Zone entry or a visible preview is not proof of possession. Correlate the slot configuration/content version and runtime generation used by an action; an unavailable or rebound slot invalidates uncommitted work without silently releasing an already delivered item. Generic slot filters must not become HIGGS inventory policy.
 
-The current [001 interface](../include/higgsinterface001.h) and
-[implementation](../src/pluginapi.cpp) expose the legacy callbacks, settings and
-hand toggles; [the hooks](../src/hooks.cpp) expose update points around VRIK.
-These are integration points, rather than proof that the proposed contract exists.
-Reuse verified CommonLib engine primitives; the runtime ownership broker belongs
-in HIGGS, since linking the library into several DLLs does not share state.
+7. **Add a versioned lifecycle contract.** Keep interface 001 unchanged and negotiate new capabilities separately. Use copied records, request/executor identities and epochs; support callback removal with confirmed drainage. Apply physical changes at documented safe phases and invalidate pending resources on load, tracking loss or provider shutdown. The offline editor has no runtime dependency on HIGGS.
 
-With this service, VR Climbing requests hand support and Immersive Harvesting
-requests a harvesting action under one arbitration contract. They can stop
-recreating shared HIGGS restrictions and patching each other for that conflict.
+The current [001 interface](../include/higgsinterface001.h), [API implementation](../src/pluginapi.cpp) and [hooks](../src/hooks.cpp) are integration points, not proof that these services exist. Internal repairs still require their own source/build/runtime verification.
+
+CommonLib is the second synergy level: reuse existing engine primitives and move address handling and repeated technical operations into verified library methods. Input arbitration and physical-possession decisions remain HIGGS services. Under that shared contract, VR Climbing and Immersive Harvesting can request hand actions without recreating common restrictions or patching each other's reservation mechanisms.
