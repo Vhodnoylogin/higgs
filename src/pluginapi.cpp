@@ -8,6 +8,15 @@
 
 using namespace HiggsPluginAPI;
 
+namespace {
+    template <class Callback>
+    void AppendCallback(std::atomic<std::shared_ptr<const std::vector<Callback>>> &callbacks, Callback callback) {
+        auto next = std::make_shared<std::vector<Callback>>(*callbacks.load(std::memory_order_acquire));
+        next->push_back(callback);
+        callbacks.store(std::shared_ptr<const std::vector<Callback>>(std::move(next)), std::memory_order_release);
+    }
+}
+
 // A message used to fetch HIGGS's interface
 struct HiggsMessage {
     enum { kMessage_GetInterface = 0xF9279A57 }; // Randomly generated
@@ -61,90 +70,91 @@ bool HiggsInterface001::SetSettingDouble(const char *name, double val) {
 void HiggsInterface001::AddPulledCallback(PulledCallback callback) {
     if (!callback) return;
     std::scoped_lock lock(addCallbackLock);
-    pulledCallbacks.push_back(callback);
+    AppendCallback(pulledCallbacks, callback);
 }
 
 void HiggsInterface001::AddGrabbedCallback(GrabbedCallback callback) {
     if (!callback) return;
     std::scoped_lock lock(addCallbackLock);
-    grabbedCallbacks.push_back(callback);
+    AppendCallback(grabbedCallbacks, callback);
 }
 
 void HiggsInterface001::AddDroppedCallback(DroppedCallback callback) {
     if (!callback) return;
     std::scoped_lock lock(addCallbackLock);
-    droppedCallbacks.push_back(callback);
+    AppendCallback(droppedCallbacks, callback);
 }
 
 void HiggsInterface001::AddStashedCallback(StashedCallback callback) {
     if (!callback) return;
     std::scoped_lock lock(addCallbackLock);
-    stashedCallbacks.push_back(callback);
+    AppendCallback(stashedCallbacks, callback);
 }
 
 void HiggsInterface001::AddConsumedCallback(ConsumedCallback callback) {
     if (!callback) return;
     std::scoped_lock lock(addCallbackLock);
-    consumedCallbacks.push_back(callback);
+    AppendCallback(consumedCallbacks, callback);
 }
 
 void HiggsInterface001::AddCollisionCallback(CollisionCallback callback) {
     if (!callback) return;
     std::scoped_lock lock(addCallbackLock);
-    collisionCallbacks.push_back(callback);
+    AppendCallback(collisionCallbacks, callback);
 }
 
 void HiggsInterface001::AddStartTwoHandingCallback(StartTwoHandingCallback callback) {
     if (!callback) return;
     std::scoped_lock lock(addCallbackLock);
-    startTwoHandingCallbacks.push_back(callback);
+    AppendCallback(startTwoHandingCallbacks, callback);
 }
 
 void HiggsInterface001::AddStopTwoHandingCallback(StopTwoHandingCallback callback) {
     if (!callback) return;
     std::scoped_lock lock(addCallbackLock);
-    stopTwoHandingCallbacks.push_back(callback);
+    AppendCallback(stopTwoHandingCallbacks, callback);
 }
 
 void HiggsInterface001::AddCollisionFilterComparisonCallback(CollisionFilterComparisonCallback callback) {
     if (!callback) return;
     std::scoped_lock lock(addCallbackLock);
-    collisionFilterComparisonCallbacks.push_back(callback);
+    AppendCallback(collisionFilterComparisonCallbacks, callback);
 }
 
 void HiggsInterface001::AddPrePhysicsStepCallback(PrePhysicsStepCallback callback) {
     if (!callback) return;
     std::scoped_lock lock(addCallbackLock);
-    prePhysicsStepCallbacks.push_back(callback);
+    AppendCallback(prePhysicsStepCallbacks, callback);
 }
 
 void HiggsInterface001::AddPreVrikPreHiggsCallback(NoArgCallback callback) {
     if (!callback) return;
     std::scoped_lock lock(addCallbackLock);
-    preVrikPreHiggsCallbacks.push_back(callback);
+    AppendCallback(preVrikPreHiggsCallbacks, callback);
 }
 
 void HiggsInterface001::AddPreVrikPostHiggsCallback(NoArgCallback callback) {
     if (!callback) return;
     std::scoped_lock lock(addCallbackLock);
-    preVrikPostHiggsCallbacks.push_back(callback);
+    AppendCallback(preVrikPostHiggsCallbacks, callback);
 }
 
 void HiggsInterface001::AddPostVrikPreHiggsCallback(NoArgCallback callback) {
     if (!callback) return;
     std::scoped_lock lock(addCallbackLock);
-    postVrikPreHiggsCallbacks.push_back(callback);
+    AppendCallback(postVrikPreHiggsCallbacks, callback);
 }
 
 void HiggsInterface001::AddPostVrikPostHiggsCallback(NoArgCallback callback) {
     if (!callback) return;
     std::scoped_lock lock(addCallbackLock);
-    postVrikPostHiggsCallbacks.push_back(callback);
+    AppendCallback(postVrikPostHiggsCallbacks, callback);
 }
 
 
 void HiggsPluginAPI::TriggerPulledCallbacks(bool isLeft, TESObjectREFR *pulledRefr) {
-    for (auto callback : g_interface001.pulledCallbacks) {
+    auto callbacks = g_interface001.pulledCallbacks.load(std::memory_order_acquire);
+    for (auto callback : *callbacks) {
         callback(isLeft, pulledRefr);
     }
 
@@ -152,7 +162,8 @@ void HiggsPluginAPI::TriggerPulledCallbacks(bool isLeft, TESObjectREFR *pulledRe
 }
 
 void HiggsPluginAPI::TriggerGrabbedCallbacks(bool isLeft, TESObjectREFR *grabbedRefr) {
-    for (auto callback : g_interface001.grabbedCallbacks) {
+    auto callbacks = g_interface001.grabbedCallbacks.load(std::memory_order_acquire);
+    for (auto callback : *callbacks) {
         callback(isLeft, grabbedRefr);
     }
 
@@ -160,7 +171,8 @@ void HiggsPluginAPI::TriggerGrabbedCallbacks(bool isLeft, TESObjectREFR *grabbed
 }
 
 void HiggsPluginAPI::TriggerDroppedCallbacks(bool isLeft, TESObjectREFR *droppedRefr) {
-    for (auto callback : g_interface001.droppedCallbacks) {
+    auto callbacks = g_interface001.droppedCallbacks.load(std::memory_order_acquire);
+    for (auto callback : *callbacks) {
         callback(isLeft, droppedRefr);
     }
 
@@ -168,7 +180,8 @@ void HiggsPluginAPI::TriggerDroppedCallbacks(bool isLeft, TESObjectREFR *dropped
 }
 
 void HiggsPluginAPI::TriggerStashedCallbacks(bool isLeft, TESForm *stashedForm) {
-    for (auto callback : g_interface001.stashedCallbacks) {
+    auto callbacks = g_interface001.stashedCallbacks.load(std::memory_order_acquire);
+    for (auto callback : *callbacks) {
         callback(isLeft, stashedForm);
     }
 
@@ -176,7 +189,8 @@ void HiggsPluginAPI::TriggerStashedCallbacks(bool isLeft, TESForm *stashedForm) 
 }
 
 void HiggsPluginAPI::TriggerConsumedCallbacks(bool isLeft, TESForm *consumedForm) {
-    for (auto callback : g_interface001.consumedCallbacks) {
+    auto callbacks = g_interface001.consumedCallbacks.load(std::memory_order_acquire);
+    for (auto callback : *callbacks) {
         callback(isLeft, consumedForm);
     }
 
@@ -184,13 +198,15 @@ void HiggsPluginAPI::TriggerConsumedCallbacks(bool isLeft, TESForm *consumedForm
 }
 
 void HiggsPluginAPI::TriggerCollisionCallbacks(bool isLeft, float mass, float separatingVelocity) {
-    for (auto callback : g_interface001.collisionCallbacks) {
+    auto callbacks = g_interface001.collisionCallbacks.load(std::memory_order_acquire);
+    for (auto callback : *callbacks) {
         callback(isLeft, mass, separatingVelocity);
     }
 }
 
 void HiggsPluginAPI::TriggerStartTwoHandingCallbacks() {
-    for (auto callback : g_interface001.startTwoHandingCallbacks) {
+    auto callbacks = g_interface001.startTwoHandingCallbacks.load(std::memory_order_acquire);
+    for (auto callback : *callbacks) {
         callback();
     }
 
@@ -198,7 +214,8 @@ void HiggsPluginAPI::TriggerStartTwoHandingCallbacks() {
 }
 
 void HiggsPluginAPI::TriggerStopTwoHandingCallbacks() {
-    for (auto callback : g_interface001.stopTwoHandingCallbacks) {
+    auto callbacks = g_interface001.stopTwoHandingCallbacks.load(std::memory_order_acquire);
+    for (auto callback : *callbacks) {
         callback();
     }
 
@@ -206,7 +223,8 @@ void HiggsPluginAPI::TriggerStopTwoHandingCallbacks() {
 }
 
 CollisionFilterComparisonResult HiggsPluginAPI::TriggerCollisionFilterComparisonCallbacks(void *filter, UInt32 filterInfoA, UInt32 filterInfoB) {
-    for (auto callback : g_interface001.collisionFilterComparisonCallbacks) {
+    auto callbacks = g_interface001.collisionFilterComparisonCallbacks.load(std::memory_order_acquire);
+    for (auto callback : *callbacks) {
         CollisionFilterComparisonResult result = callback(filter, filterInfoA, filterInfoB);
         if (result == CollisionFilterComparisonResult::Collide || result == CollisionFilterComparisonResult::Ignore) {
             return result;
@@ -218,31 +236,36 @@ CollisionFilterComparisonResult HiggsPluginAPI::TriggerCollisionFilterComparison
 }
 
 void HiggsPluginAPI::TriggerPrePhysicsStepCallbacks(void *world) {
-    for (auto callback : g_interface001.prePhysicsStepCallbacks) {
+    auto callbacks = g_interface001.prePhysicsStepCallbacks.load(std::memory_order_acquire);
+    for (auto callback : *callbacks) {
         callback(world);
     }
 }
 
 void HiggsPluginAPI::TriggerPreVrikPreHiggsCallbacks() {
-    for (auto callback : g_interface001.preVrikPreHiggsCallbacks) {
+    auto callbacks = g_interface001.preVrikPreHiggsCallbacks.load(std::memory_order_acquire);
+    for (auto callback : *callbacks) {
         callback();
     }
 }
 
 void HiggsPluginAPI::TriggerPreVrikPostHiggsCallbacks() {
-    for (auto callback : g_interface001.preVrikPostHiggsCallbacks) {
+    auto callbacks = g_interface001.preVrikPostHiggsCallbacks.load(std::memory_order_acquire);
+    for (auto callback : *callbacks) {
         callback();
     }
 }
 
 void HiggsPluginAPI::TriggerPostVrikPreHiggsCallbacks() {
-    for (auto callback : g_interface001.postVrikPreHiggsCallbacks) {
+    auto callbacks = g_interface001.postVrikPreHiggsCallbacks.load(std::memory_order_acquire);
+    for (auto callback : *callbacks) {
         callback();
     }
 }
 
 void HiggsPluginAPI::TriggerPostVrikPostHiggsCallbacks() {
-    for (auto callback : g_interface001.postVrikPostHiggsCallbacks) {
+    auto callbacks = g_interface001.postVrikPostHiggsCallbacks.load(std::memory_order_acquire);
+    for (auto callback : *callbacks) {
         callback();
     }
 }

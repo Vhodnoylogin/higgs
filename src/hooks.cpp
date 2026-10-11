@@ -1323,15 +1323,15 @@ void PerformHooks(void)
                 Xbyak::Label jumpBack;
 
                 push(rdx);
-                sub(rsp, 0x8); // Need to keep the stack SIXTEEN BYTE ALIGNED
-                movsd(ptr[rsp], xmm0);
+                sub(rsp, 0x28); // Keep saved XMM0 outside the callee's 0x20-byte home space.
+                movsd(ptr[rsp + 0x20], xmm0);
 
                 // Call our hook
                 mov(rax, (uintptr_t)UpdatePhysicsTimesHook);
                 call(rax);
 
-                movsd(xmm0, ptr[rsp]);
-                add(rsp, 0x8);
+                movsd(xmm0, ptr[rsp + 0x20]);
+                add(rsp, 0x28);
                 pop(rdx);
 
                 // Original code
@@ -1364,13 +1364,13 @@ void PerformHooks(void)
                 push(rcx);
                 push(rdx);
                 push(r8);
-                sub(rsp, 0x28); // Need to keep the stack 16 byte aligned, and an additional 0x20 bytes for scratch space
+                sub(rsp, 0x20); // Function entry has a return address; three pushes align the call.
 
                 // Call our hook
                 mov(rax, (uintptr_t)bhkCollisionFilter_CompareFilterInfo_Hook);
                 call(rax);
 
-                add(rsp, 0x28);
+                add(rsp, 0x20);
                 pop(r8);
                 pop(rdx);
                 pop(rcx);
