@@ -175,9 +175,4 @@ DLL and uses a separately linked C program to load the exact export by name,
 negotiate its table and call all six copied entry points. Its unobserved world
 correctly refuses new leases. This DLL is a service probe, not a HIGGS plugin.
 
-The whole native plugin remains **unbuilt and untested in game**. The existing
-project's relative SKSE/common dependencies and original author's Havok include
-path are absent in this checkout; an attempted Release x64 build with deployment
-disabled stops on the missing `common/IPrefix.h` and SKSE project. Standalone
-module and structural integration checks do not establish hook/runtime
-qualification. No game files were installed or launched for these checks.
+The whole native plugin remains **unbuilt and untested in game**. An attempted Release x64 build with deployment disabled stopped on `common/IPrefix.h` and the SKSE project. The later [prerequisite audit](native-build-prerequisites.md) found the original SKSE SDK and toolchain externally; the current project paths need configuration, and the compatible Havok include tree is absent from the audited locations. Standalone module and structural integration checks do not establish hook/runtime qualification. No game files were installed or launched for these checks.
