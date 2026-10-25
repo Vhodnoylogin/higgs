@@ -578,10 +578,13 @@ void TriggerCollisionHaptics(float inverseMass, float speed, HandIndex handIndex
 
 void TriggerCollisionHapticsUsingHandSpeed(float inverseMass, bool isLeft) {
     float mass = inverseMass ? 1.0f / inverseMass : 10000.0f;
+    const auto tracking = HiggsMotion::Tracking().CopyAll();
+    const float leftSpeed = tracking[0].available ? tracking[0].averageSpeed : 0.f;
+    const float rightSpeed = tracking[1].available ? tracking[1].averageSpeed : 0.f;
 
     if (g_rightHand->IsTwoHanding() || g_leftHand->IsTwoHanding()) {
         // Both hands are holding an equipped weapon - play haptics for both
-        float speed = g_rightHand->avgPlayerSpeedWorldspace + max(g_rightHand->controllerData.avgSpeed, g_leftHand->controllerData.avgSpeed);
+        float speed = g_rightHand->avgPlayerSpeedWorldspace + max(rightSpeed, leftSpeed);
         g_leftHand->TriggerCollisionHaptics(mass, speed);
         g_rightHand->TriggerCollisionHaptics(mass, speed);
         HiggsPluginAPI::TriggerCollisionCallbacks(true, mass, speed);
@@ -589,12 +592,12 @@ void TriggerCollisionHapticsUsingHandSpeed(float inverseMass, bool isLeft) {
     }
     else {
         if (isLeft) {
-            float speed = g_leftHand->avgPlayerSpeedWorldspace + g_leftHand->controllerData.avgSpeed;
+            float speed = g_leftHand->avgPlayerSpeedWorldspace + leftSpeed;
             g_leftHand->TriggerCollisionHaptics(mass, speed);
             HiggsPluginAPI::TriggerCollisionCallbacks(isLeft, mass, speed);
         }
         else {
-            float speed = g_rightHand->avgPlayerSpeedWorldspace + g_rightHand->controllerData.avgSpeed;
+            float speed = g_rightHand->avgPlayerSpeedWorldspace + rightSpeed;
             g_rightHand->TriggerCollisionHaptics(mass, speed);
             HiggsPluginAPI::TriggerCollisionCallbacks(isLeft, mass, speed);
         }

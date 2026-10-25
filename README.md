@@ -14,6 +14,8 @@ Run the standalone checks with `python tests/run_tests.py --build-dir <external-
 
 The [native build prerequisites](docs/native-build-prerequisites.md) distinguish the available SKSE/toolchain from nonportable project paths and the remaining compatible Havok headers.
 
+An internal [controller-motion availability repair](docs/controller-motion.md) clears only affected tracking histories on observed failures, preserves valid five-sample behavior and player/object release motion, and treats unavailable motion separately from stationary motion. It adds no motion ABI or callback-silence freshness guarantee. The standalone command above also runs its actual numeric core and extracted callback/consumer fixtures; `--motion-only` selects those checks alone. Native plugin/game qualification remains pending.
+
 This mod is complicated.
 
 To build from source, it requires object definitions / headers similar to those belonging to havok 2010.2. I will not be providing these, nor do I claim to have them myself.

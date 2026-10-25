@@ -1917,11 +1917,9 @@ bool Hand::IsObjectDepositable(TESObjectREFR *refr, NiAVObject *hmdNode, const N
         return false;
     }
 
-    float speed = 0;
-    for (const NiPoint3 &velocity : controllerData.linearVelocities) {
-        speed += VectorLength(velocity);
-    }
-    speed /= std::size(controllerData.linearVelocities);
+    const auto tracking = HiggsMotion::Tracking().Copy(isLeft);
+    if (!tracking.available) return false;
+    const float speed = tracking.averageSpeed;
 
     if (speed < Config::options.shoulderVelocityThreshold) {
         NiPoint3 rightShoulderPos = hmdNode->m_worldTransform * Config::options.rightShoulderHmdOffset;
@@ -1959,11 +1957,9 @@ bool Hand::IsObjectConsumable(TESObjectREFR *refr, NiAVObject *hmdNode, const Ni
         return false;
     }
 
-    float speed = 0;
-    for (const NiPoint3 &velocity : controllerData.linearVelocities) {
-        speed += VectorLength(velocity);
-    }
-    speed /= std::size(controllerData.linearVelocities);
+    const auto tracking = HiggsMotion::Tracking().Copy(isLeft);
+    if (!tracking.available) return false;
+    const float speed = tracking.averageSpeed;
 
     if (speed < Config::options.mouthVelocityThreshold) {
         NiPoint3 mouthPos = hmdNode->m_worldTransform * Config::options.mouthHmdOffset;
@@ -2228,7 +2224,8 @@ NiPoint3 GetMaxVelocity(const std::deque<NiPoint3> &velocities)
 
 NiPoint3 Hand::GetHandVelocity()
 {
-    return GetMaxVelocity(controllerData.linearVelocities);
+    const auto tracking = HiggsMotion::Tracking().Copy(isLeft);
+    return tracking.available ? TrackedVelocityPoint(tracking.peakVelocity) : NiPoint3();
 }
 
 
@@ -2716,7 +2713,7 @@ void Hand::Update(Hand &other, bhkWorld *world)
         }
 
         if (state == State::SelectedTwoHand) {
-            if (controllerData.avgSpeed < Config::options.selectedCloseFingerAnimMaxHandSpeed) {
+            if (const auto tracking = HiggsMotion::Tracking().Copy(isLeft); tracking.available && tracking.averageSpeed < Config::options.selectedCloseFingerAnimMaxHandSpeed) {
                 double elapsedTimeFraction = 1 + (g_currentFrameTime - rolloverDisplayTime) / Config::options.fingerAnimateStartDoubleSpeedTime;
                 float posSpeed = elapsedTimeFraction * Config::options.fingerAnimateStartLinearSpeed;
                 float rotSpeed = elapsedTimeFraction * Config::options.fingerAnimateStartAngularSpeed;
@@ -2807,7 +2804,7 @@ void Hand::Update(Hand &other, bhkWorld *world)
 #endif // _DEBUG
 
                 if (state == State::SelectedClose) {
-                    if (controllerData.avgSpeed < Config::options.selectedCloseFingerAnimMaxHandSpeed) {
+                    if (const auto tracking = HiggsMotion::Tracking().Copy(isLeft); tracking.available && tracking.averageSpeed < Config::options.selectedCloseFingerAnimMaxHandSpeed) {
                         double elapsedTimeFraction = 1 + (g_currentFrameTime - rolloverDisplayTime) / Config::options.fingerAnimateStartDoubleSpeedTime;
                         float posSpeed = elapsedTimeFraction * Config::options.fingerAnimateStartLinearSpeed;
                         float rotSpeed = elapsedTimeFraction * Config::options.fingerAnimateStartAngularSpeed;
@@ -2976,33 +2973,40 @@ void Hand::Update(Hand &other, bhkWorld *world)
 
                     if (state == State::HeldInit || state == State::Held || state == State::HeldBody) {
 
-                        NiPoint3 velocityHandComponent = GetHandVelocity();
+                        // One coherent copy for controller linear/angular contribution.
+                        // Tracking loss never blocks release or removes player/object motion.
+                        const auto tracking = HiggsMotion::Tracking().Copy(isLeft);
+                        NiPoint3 velocityHandComponent = tracking.available ? TrackedVelocityPoint(tracking.peakVelocity) : NiPoint3();
                         if (VectorLength(velocityHandComponent) > Config::options.throwVelocityThreshold) {
                             velocityHandComponent *= Config::options.throwVelocityBoostFactor;
                         }
 
-                        NiPoint3 handAngularVelocity = controllerData.angularVelocities[0];
+                        NiPoint3 handAngularVelocity = tracking.available ? TrackedVelocityPoint(tracking.latestAngular) : NiPoint3();
                         NiPoint3 angularVelocity = handAngularVelocity * Config::options.angularVelocityMultiplier;
 
                         NiPoint3 tangentialVelocity = { 0, 0, 0 };
-                        if (Config::options.inheritTangentialVelocity) {
+                        if (Config::options.inheritTangentialVelocity && VectorLength(angularVelocity) > 0.f) {
                             NiPoint3 axis = VectorNormalized(angularVelocity);
                             float angle = VectorLength(angularVelocity);
 
                             hkVector4 centerOfMass;
                             NiPoint3 handToCenterOfMass = HkVectorToNiPoint(selectedObject.rigidBody->getCenterOfMassInWorld(centerOfMass)) - hkPalmPos;
                             NiPoint3 handToCenterOfMassInRotationPlane = ProjectVectorOntoPlane(handToCenterOfMass, axis);
-                            NiPoint3 tangentialDirection = VectorNormalized(CrossProduct(axis, handToCenterOfMassInRotationPlane));
+                            NiPoint3 tangentialVector = CrossProduct(axis, handToCenterOfMassInRotationPlane);
 
                             float centerOfMassDistance = VectorLength(handToCenterOfMassInRotationPlane);
-                            float tangentialMagnitude = centerOfMassDistance * angle;
+                            float tangentialLength = VectorLength(tangentialVector);
+                            if (centerOfMassDistance > 0.f && tangentialLength > 0.f) {
+                                NiPoint3 tangentialDirection = tangentialVector / tangentialLength;
+                                float tangentialMagnitude = centerOfMassDistance * angle;
 
-                            if (tangentialMagnitude > Config::options.tangentialVelocityLimit) {
-                                tangentialMagnitude = Config::options.tangentialVelocityLimit;
-                                angularVelocity = axis * (tangentialMagnitude / centerOfMassDistance); // limit the angular velocity to match the clamped tangential velocity
+                                if (tangentialMagnitude > Config::options.tangentialVelocityLimit) {
+                                    tangentialMagnitude = Config::options.tangentialVelocityLimit;
+                                    angularVelocity = axis * (tangentialMagnitude / centerOfMassDistance); // limit the angular velocity to match the clamped tangential velocity
+                                }
+
+                                tangentialVelocity = tangentialDirection * tangentialMagnitude;
                             }
-
-                            tangentialVelocity = tangentialDirection * tangentialMagnitude;
                         }
 
                         NiPoint3 velocityPlayerComponent = avgPlayerVelocityWorldspace * havokWorldScale;
@@ -3296,8 +3300,9 @@ void Hand::Update(Hand &other, bhkWorld *world)
                     }
                 }
 
-                if (!isSelectedNear) {
-                    NiPoint3 controllerVelocity = controllerData.linearVelocities[0];
+                const auto tracking = HiggsMotion::Tracking().Copy(isLeft);
+                if (!isSelectedNear && tracking.available) {
+                    NiPoint3 controllerVelocity = TrackedVelocityPoint(tracking.latestLinear);
 
                     NiPoint3 selectedPointToHand = hkHandPos - selectedObject.point;
                     float controllerSpeedTowardsHand = DotProduct(controllerVelocity, VectorNormalized(selectedPointToHand));
@@ -3325,26 +3330,29 @@ void Hand::Update(Hand &other, bhkWorld *world)
                 if (other.HasHeldObject() && other.selectedObject.rigidBody == selectedObject.rigidBody) {
                     // Other hand is still holding this object
 
-                    NiPoint3 controllerVelocity = controllerData.linearVelocities[0];
+                    const auto tracking = HiggsMotion::Tracking().Copy(isLeft);
+                    if (tracking.available) {
+                        NiPoint3 controllerVelocity = TrackedVelocityPoint(tracking.latestLinear);
 
-                    NiPoint3 selectedPointToHand = hkHandPos - selectedObject.point;
-                    float controllerSpeedTowardsHand = DotProduct(controllerVelocity, VectorNormalized(selectedPointToHand));
+                        NiPoint3 selectedPointToHand = hkHandPos - selectedObject.point;
+                        float controllerSpeedTowardsHand = DotProduct(controllerVelocity, VectorNormalized(selectedPointToHand));
 
-                    if (controllerSpeedTowardsHand > Config::options.lootSpeedThreshold) {
-                        // Pulling away from the object - loot it
+                        if (controllerSpeedTowardsHand > Config::options.lootSpeedThreshold) {
+                            // Pulling away from the object - loot it
 
-                        float hapticStrength = min(1.0f, Config::options.selectionLockedBaseHapticStrength + Config::options.selectionLockedProportionalHapticStrength);
-                        haptics.QueueHapticEvent(hapticStrength, 0, Config::options.pullHapticFadeTime);
+                            float hapticStrength = min(1.0f, Config::options.selectionLockedBaseHapticStrength + Config::options.selectionLockedProportionalHapticStrength);
+                            haptics.QueueHapticEvent(hapticStrength, 0, Config::options.pullHapticFadeTime);
 
-                        TransitionPreGrab(selectedObj, true);
-                    }
-                    else if (-controllerSpeedTowardsHand > Config::options.lootToGrabSpeedThreshold && g_currentFrameTime - rolloverDisplayTime >= Config::options.lootToGrabLeewayTime) {
-                        // Pushing towards the object - grab it
-                        TransitionHeld(other, *world, palmPos, palmVector, selectedObject.point, havokWorldScale, handNode, handSize, selectedObj);
-                    }
-                    else {
-                        float hapticStrength = min(1.0f, Config::options.selectionLockedBaseHapticStrength + Config::options.selectionLockedProportionalHapticStrength * max(0, (controllerSpeedTowardsHand / Config::options.lootSpeedThreshold)));
-                        haptics.QueueHapticPulse(hapticStrength);
+                            TransitionPreGrab(selectedObj, true);
+                        }
+                        else if (-controllerSpeedTowardsHand > Config::options.lootToGrabSpeedThreshold && g_currentFrameTime - rolloverDisplayTime >= Config::options.lootToGrabLeewayTime) {
+                            // Pushing towards the object - grab it
+                            TransitionHeld(other, *world, palmPos, palmVector, selectedObject.point, havokWorldScale, handNode, handSize, selectedObj);
+                        }
+                        else {
+                            float hapticStrength = min(1.0f, Config::options.selectionLockedBaseHapticStrength + Config::options.selectionLockedProportionalHapticStrength * max(0, (controllerSpeedTowardsHand / Config::options.lootSpeedThreshold)));
+                            haptics.QueueHapticPulse(hapticStrength);
+                        }
                     }
                 }
                 else {

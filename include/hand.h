@@ -13,8 +13,14 @@
 #include "haptics.h"
 #include "finger_animator.h"
 #include "config.h"
+#include "controller_tracking.h"
 
 #include <Physics/Collide/Shape/Convex/Box/hkpBoxShape.h>
+
+inline NiPoint3 TrackedVelocityPoint(const HiggsMotion::Vector3& value)
+{
+    return { value.x, value.y, value.z };
+}
 
 
 struct Hand
@@ -76,35 +82,6 @@ struct Hand
         TESObjectWEAP *weapon;
         float prevFrameTwistAngle360 = 0;
         AngleState angleState = AngleState::None;
-    };
-
-    struct ControllerTrackingData
-    {
-        std::deque<NiPoint3> linearVelocities{ 5, NiPoint3() };
-        std::deque<NiPoint3> angularVelocities{ 5, NiPoint3() };
-        NiPoint3 avgVelocity;
-        float avgSpeed;
-
-        void RecomputeAverageVelocity()
-        {
-            avgVelocity = std::accumulate(linearVelocities.begin(), linearVelocities.end(), NiPoint3()) / linearVelocities.size();
-        }
-
-        void RecomputeAverageSpeed()
-        {
-            float speed = 0;
-            for (NiPoint3 &velocity : linearVelocities) {
-                speed += VectorLength(velocity);
-            }
-            speed /= std::size(linearVelocities);
-            avgSpeed = speed;
-        }
-
-        void Recompute()
-        {
-            RecomputeAverageVelocity();
-            RecomputeAverageSpeed();
-        }
     };
 
     struct ShapeIdentifier
@@ -316,7 +293,6 @@ struct Hand
     TESEffectShader *itemSelectedShader = nullptr;
     TESEffectShader *itemSelectedShaderOffLimits = nullptr;
 
-    ControllerTrackingData controllerData{};
     std::deque<NiPoint3> playerVelocitiesWorldspace{ 5, NiPoint3() }; // previous n player velocities in skyrim worldspace
     NiPoint3 avgPlayerVelocityWorldspace{};
     float avgPlayerSpeedWorldspace = 0.f;

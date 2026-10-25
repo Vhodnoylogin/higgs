@@ -7,6 +7,7 @@
 #include <chrono>
 #include <limits>
 #include <atomic>
+#include <cmath>
 
 #include "common/IDebugLog.h"  // IDebugLog
 #include "skse64_common/skse_version.h"  // RUNTIME_VERSION
@@ -60,7 +61,7 @@ vrikPluginApi::IVrikInterface001 * g_vrikInterface;
 TESEffectShader *g_itemSelectedShader = nullptr;
 TESEffectShader *g_itemSelectedShaderOffLimits = nullptr;
 
-bool initComplete = false; // Whether hands have been initialized
+std::atomic<bool> initComplete{ false }; // Whether hands have been initialized
 
 bool g_isVrikPresent = false;
 SInt32 g_controllerType = BSOpenVR::ControllerTypes::kControllerType_Oculus;
@@ -120,88 +121,70 @@ bool TryHook()
 }
 
 
+HiggsMotion::Rotation TrackingRotation(const NiMatrix33& rotation)
+{
+    HiggsMotion::Rotation result{};
+    for (std::size_t i = 0; i < 3; ++i) for (std::size_t j = 0; j < 3; ++j) result[i][j] = rotation.data[i][j];
+    return result;
+}
+
+void ObserveControllerWorld(std::uintptr_t identity)
+{
+    HiggsMotion::Event event;
+    event.kind = HiggsMotion::EventKind::World;
+    event.world = identity;
+    HiggsMotion::Tracking().Apply(event);
+}
+
+void ControllerTrackingLifecycle(HiggsMotion::EventKind kind)
+{
+    HiggsMotion::Event event;
+    event.kind = kind;
+    HiggsMotion::Tracking().Apply(event);
+}
+
 void FillControllerVelocities(NiAVObject *hmdNode, vr_src::TrackedDevicePose_t* pGamePoseArray, uint32_t unGamePoseArrayCount)
 {
-    if (g_openVR && *g_openVR) {
-        BSOpenVR *openVR = *g_openVR;
-        vr_src::IVRSystem *vrSystem = openVR->vrSystem;
-        if (vrSystem) {
-            const vr_src::TrackedDeviceIndex_t rightIndex = vrSystem->GetTrackedDeviceIndexForControllerRole(vr_src::ETrackedControllerRole::TrackedControllerRole_RightHand);
-            const vr_src::TrackedDeviceIndex_t leftIndex = vrSystem->GetTrackedDeviceIndexForControllerRole(vr_src::ETrackedControllerRole::TrackedControllerRole_LeftHand);
-            const vr_src::TrackedDeviceIndex_t hmdIndex = vr_src::k_unTrackedDeviceIndex_Hmd;
-
-            if (unGamePoseArrayCount > hmdIndex && vrSystem->IsTrackedDeviceConnected(hmdIndex) && hmdNode) {
-                vr_src::TrackedDevicePose_t &hmdPose = pGamePoseArray[hmdIndex];
-                if (hmdPose.bDeviceIsConnected && hmdPose.bPoseIsValid && hmdPose.eTrackingResult == vr_src::ETrackingResult::TrackingResult_Running_OK) {
-                    vr_src::HmdMatrix34_t &hmdMatrix = hmdPose.mDeviceToAbsoluteTracking;
-
-                    NiTransform hmdTransform;
-                    HmdMatrixToNiTransform(hmdTransform, hmdMatrix);
-
-                    // Use the transform between the openvr hmd pose and skyrim's hmdnode transform to get the transform from openvr space to skyrim worldspace
-                    NiMatrix33 openvrToSkyrimWorldTransform = hmdNode->m_worldTransform.rot * hmdTransform.rot.Transpose();
-
-                    bool isRightConnected = vrSystem->IsTrackedDeviceConnected(rightIndex);
-                    bool isLeftConnected = vrSystem->IsTrackedDeviceConnected(leftIndex);
-
-                    for (int i = hmdIndex + 1; i < unGamePoseArrayCount; i++) {
-                        if (i == rightIndex && isRightConnected) {
-                            vr_src::TrackedDevicePose_t &pose = pGamePoseArray[i];
-                            if (pose.bDeviceIsConnected && pose.bPoseIsValid && pose.eTrackingResult == vr_src::ETrackingResult::TrackingResult_Running_OK) {
-
-                                // SteamVR
-                                // +y is up
-                                // +x is to the right
-                                // -z is forward
-
-                                // Skyrim
-                                // +z is up
-                                // +x is to the right
-                                // +y is forward
-
-                                // So, SteamVR -> Skyrim
-                                // x <- x
-                                // y <- -z
-                                // z <- y
-
-                                NiPoint3 openvrVelocity = { pose.vVelocity.v[0], pose.vVelocity.v[1], pose.vVelocity.v[2] };
-                                NiPoint3 skyrimVelocity = { openvrVelocity.x, -openvrVelocity.z, openvrVelocity.y };
-                                NiPoint3 velocityWorldspace = openvrToSkyrimWorldTransform * skyrimVelocity;
-                                g_rightHand->controllerData.linearVelocities.pop_back();
-                                g_rightHand->controllerData.linearVelocities.push_front(velocityWorldspace);
-
-                                g_rightHand->controllerData.Recompute();
-
-                                NiPoint3 openvrAngularVelocity = { pose.vAngularVelocity.v[0], pose.vAngularVelocity.v[1], pose.vAngularVelocity.v[2] };
-                                NiPoint3 skyrimAngularVelocity = { openvrAngularVelocity.x, -openvrAngularVelocity.z, openvrAngularVelocity.y };
-                                NiPoint3 angularVelocityWorldspace = openvrToSkyrimWorldTransform * skyrimAngularVelocity;
-                                g_rightHand->controllerData.angularVelocities.pop_back();
-                                g_rightHand->controllerData.angularVelocities.push_front(angularVelocityWorldspace);
-                            }
-                        }
-                        else if (i == leftIndex && isLeftConnected) {
-                            vr_src::TrackedDevicePose_t &pose = pGamePoseArray[i];
-                            if (pose.bDeviceIsConnected && pose.bPoseIsValid && pose.eTrackingResult == vr_src::ETrackingResult::TrackingResult_Running_OK) {
-                                NiPoint3 openvrVelocity = { pose.vVelocity.v[0], pose.vVelocity.v[1], pose.vVelocity.v[2] };
-                                NiPoint3 skyrimVelocity = { openvrVelocity.x, -openvrVelocity.z, openvrVelocity.y };
-                                NiPoint3 velocityWorldspace = openvrToSkyrimWorldTransform * skyrimVelocity;
-                                g_leftHand->controllerData.linearVelocities.pop_back();
-                                g_leftHand->controllerData.linearVelocities.push_front(velocityWorldspace);
-
-                                g_leftHand->controllerData.Recompute();
-
-                                NiPoint3 openvrAngularVelocity = { pose.vAngularVelocity.v[0], pose.vAngularVelocity.v[1], pose.vAngularVelocity.v[2] };
-                                NiPoint3 skyrimAngularVelocity = { openvrAngularVelocity.x, -openvrAngularVelocity.z, openvrAngularVelocity.y };
-                                NiPoint3 angularVelocityWorldspace = openvrToSkyrimWorldTransform * skyrimAngularVelocity;
-                                g_leftHand->controllerData.angularVelocities.pop_back();
-                                g_leftHand->controllerData.angularVelocities.push_front(angularVelocityWorldspace);
-                            }
-                        }
-                    }
-                }
-            }
+    if (!initComplete) return;
+    const auto ticket = HiggsMotion::Tracking().BeginObservation();
+    if (!ticket.sequence) return;
+    HiggsMotion::Event event;
+    event.expectedGeneration = ticket.generation;
+    event.observationSequence = ticket.sequence;
+    event.observedAtNs = HiggsMotion::NowNs();
+    // Capture engine data outside the owner lock. All failures reach one publication.
+    const auto capture = [&]() {
+        if (!g_openVR || !*g_openVR || !pGamePoseArray || !hmdNode) return;
+        vr_src::IVRSystem *vrSystem = (*g_openVR)->vrSystem;
+        if (!vrSystem) return;
+        const auto hmdIndex = vr_src::k_unTrackedDeviceIndex_Hmd;
+        if (unGamePoseArrayCount <= hmdIndex || !vrSystem->IsTrackedDeviceConnected(hmdIndex)) return;
+        const auto& hmdPose = pGamePoseArray[hmdIndex];
+        if (!hmdPose.bDeviceIsConnected || !hmdPose.bPoseIsValid || hmdPose.eTrackingResult != vr_src::ETrackingResult::TrackingResult_Running_OK) return;
+        for (const auto& row : hmdPose.mDeviceToAbsoluteTracking.m) for (float value : row) if (!std::isfinite(value)) return;
+        NiTransform hmdTransform;
+        HmdMatrixToNiTransform(hmdTransform, hmdPose.mDeviceToAbsoluteTracking);
+        if (!HiggsMotion::IsRotation(TrackingRotation(hmdTransform.rot)) || !HiggsMotion::IsRotation(TrackingRotation(hmdNode->m_worldTransform.rot))) return;
+        const auto worldRotation = TrackingRotation(hmdNode->m_worldTransform.rot * hmdTransform.rot.Transpose());
+        const vr_src::ETrackedControllerRole roles[2] = { vr_src::ETrackedControllerRole::TrackedControllerRole_LeftHand, vr_src::ETrackedControllerRole::TrackedControllerRole_RightHand };
+        const vr_src::TrackedDeviceIndex_t indices[2] = { vrSystem->GetTrackedDeviceIndexForControllerRole(roles[0]), vrSystem->GetTrackedDeviceIndexForControllerRole(roles[1]) };
+        if (indices[0] == indices[1]) return; // An ambiguous role cannot supply two physical hands.
+        for (std::size_t hand = 0; hand < event.hands.size(); ++hand) {
+            const auto index = indices[hand];
+            auto& observation = event.hands[hand];
+            observation.device = index;
+            observation.status = HiggsMotion::Status::Disconnected;
+            if (index <= hmdIndex || index >= unGamePoseArrayCount || index >= vr_src::k_unMaxTrackedDeviceCount || !vrSystem->IsTrackedDeviceConnected(index)) continue;
+            const auto& pose = pGamePoseArray[index];
+            if (!pose.bDeviceIsConnected) continue;
+            observation.status = HiggsMotion::Status::InvalidPose;
+            if (!pose.bPoseIsValid || pose.eTrackingResult != vr_src::ETrackingResult::TrackingResult_Running_OK) continue;
+            observation = HiggsMotion::Convert(index, { pose.vVelocity.v[0], pose.vVelocity.v[1], pose.vVelocity.v[2] },
+                { pose.vAngularVelocity.v[0], pose.vAngularVelocity.v[1], pose.vAngularVelocity.v[2] }, worldRotation);
         }
-    }
+    };
+    capture();
+    HiggsMotion::Tracking().Apply(event);
 }
 
 
@@ -525,6 +508,7 @@ void Update()
     PlayerCharacter *player = *g_thePlayer;
     if (!player || !player->GetNiNode()) {
         HiggsSynergy::ObserveWorld(0);
+        ObserveControllerWorld(0);
         return;
     }
 
@@ -533,17 +517,20 @@ void Update()
     TESObjectCELL *cell = player->parentCell;
     if (!cell) {
         HiggsSynergy::ObserveWorld(0);
+        ObserveControllerWorld(0);
         return;
     }
 
     NiPointer<bhkWorld> world = GetHavokWorldFromCell(cell);
     if (!world) {
         HiggsSynergy::ObserveWorld(0);
+        ObserveControllerWorld(0);
         _MESSAGE("Could not get havok world from player cell");
         return;
     }
     // No core lock is retained while touching engine objects below.
     HiggsSynergy::ObserveWorld(reinterpret_cast<std::uintptr_t>(world.operator->()));
+    ObserveControllerWorld(reinterpret_cast<std::uintptr_t>(world.operator->()));
 
     bool reloadConfig = Config::options.reloadConfigIfModified;
 #ifdef _DEBUG
@@ -719,14 +706,14 @@ void UnregisterDebugTransform(const std::string_view &name)
 
 bool WaitPosesCB(vr_src::TrackedDevicePose_t* pRenderPoseArray, uint32_t unRenderPoseArrayCount, vr_src::TrackedDevicePose_t* pGamePoseArray, uint32_t unGamePoseArrayCount)
 {
+    (void)pRenderPoseArray;
+    (void)unRenderPoseArrayCount;
+    if (!initComplete) return true;
     PlayerCharacter *player = *g_thePlayer;
-    if (!player || !player->GetNiNode()) return true;
-
-    NiPointer<NiAVObject> hmdNode = player->unk3F0[PlayerCharacter::Node::kNode_HmdNode];
-    if (!hmdNode) return true;
-
+    NiPointer<NiAVObject> hmdNode;
+    if (player && player->GetNiNode()) hmdNode = player->unk3F0[PlayerCharacter::Node::kNode_HmdNode];
+    // Missing player/root/HMD is an observed failure, not a retained old sample.
     FillControllerVelocities(hmdNode, pGamePoseArray, unGamePoseArrayCount);
-
     return true;
 }
 
@@ -1104,12 +1091,15 @@ extern "C" {
                 OnDataLoaded();
             }
             else if (msg->type == SKSEMessagingInterface::kMessage_PreLoadGame) {
+                ControllerTrackingLifecycle(HiggsMotion::EventKind::BeginLoad);
                 HiggsSynergy::BeginGameLoad();
             }
             else if (msg->type == SKSEMessagingInterface::kMessage_PostLoadGame) {
+                ControllerTrackingLifecycle(HiggsMotion::EventKind::EndLoad);
                 HiggsSynergy::EndGameLoad();
             }
             else if (msg->type == SKSEMessagingInterface::kMessage_NewGame) {
+                ControllerTrackingLifecycle(HiggsMotion::EventKind::NewGame);
                 HiggsSynergy::NewGame();
             }
             else if (msg->type == SKSEMessagingInterface::kMessage_PostLoad) {
