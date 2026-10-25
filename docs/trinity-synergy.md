@@ -6,6 +6,8 @@ A separate slot service, **Body Slots** as a working name, owns slot creation, s
 
 The `development` branch implements an initial [scoped restriction service](scoped-restrictions.md), independently negotiated from interface001. It addresses owned hand/collision suppression, expiry and lifecycle; it does not yet implement the full input broker or correlated transfer contracts below. `main` preserves the upstream source, while all consolidated fork development remains in `development`.
 
+A separate [read-only velocity table](velocity-observation.md) now copies the existing physical-hand history owner, explicit validity, producer-computed age and continuity metadata. It supplies part of the coherent-state requirement below. Consumers choose their age policy; this does not establish current palm/pose, physical possession, contacts, hardware sample time or input ownership. Standalone core/C/DLL checks pass; complete native-plugin and game qualification remain pending.
+
 The only maintained source of the full concept and illustrative pseudo-ABI is [the English concept in Body Pouches](https://github.com/Vhodnoylogin/body-pouches/blob/main/docs/trinity-synergy/concept-en.md), with [a Russian counterpart](https://github.com/Vhodnoylogin/body-pouches/blob/main/docs/trinity-synergy/concept-ru.md). This file records HIGGS-specific requirements, not another copy of the concept. Body Pouches intends to adopt the architecture; it is not an available SDK or an agreement with the framework authors.
 
 ## Required architectural changes in HIGGS
