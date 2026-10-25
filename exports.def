@@ -3,3 +3,4 @@ EXPORTS
 SKSEPlugin_Query
 SKSEPlugin_Load
 HIGGS_QuerySynergyInterface
+HIGGS_QueryMotionInterface

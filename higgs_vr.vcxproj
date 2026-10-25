@@ -220,6 +220,7 @@
     <ClCompile Include="src\synergy_core.cpp" />
     <ClCompile Include="src\synergy_runtime.cpp" />
     <ClCompile Include="src\controller_tracking.cpp" />
+    <ClCompile Include="src\motion_runtime.cpp" />
     <ClCompile Include="src\RE\havok.cpp" />
     <ClCompile Include="src\RE\offsets.cpp" />
     <ClCompile Include="src\utils.cpp" />
@@ -242,6 +243,8 @@
     <ClInclude Include="include\config.h" />
     <ClInclude Include="include\hand.h" />
     <ClInclude Include="include\controller_tracking.h" />
+    <ClInclude Include="include\higgsmotion.h" />
+    <ClInclude Include="include\motion_runtime.h" />
     <ClInclude Include="include\havok_ref_ptr.h" />
     <ClInclude Include="include\hooks.h" />
     <ClInclude Include="include\math_utils.h" />

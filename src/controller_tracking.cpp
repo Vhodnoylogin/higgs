@@ -43,9 +43,11 @@ namespace HiggsMotion {
             History next = previous.snapshot.available && previous.snapshot.device == observation.device ? previous : History{};
             for (std::size_t i = kHistorySize - 1; i > 0; --i) { next.linear[i] = next.linear[i - 1]; next.angular[i] = next.angular[i - 1]; }
             next.linear[0] = observation.linear; next.angular[0] = observation.angular;
+            const auto previousCount = next.snapshot.historyObservationCount;
             auto& snapshot = next.snapshot;
             snapshot = {}; snapshot.available = true; snapshot.status = Status::Valid; snapshot.device = observation.device;
             snapshot.latestLinear = observation.linear; snapshot.latestAngular = observation.angular; snapshot.observedAtNs = now;
+            snapshot.historyObservationCount = previousCount < kHistorySize ? previousCount + 1 : static_cast<std::uint32_t>(kHistorySize);
             float largestSpeed = -1;
             std::size_t largestIndex = 0;
             for (std::size_t i = 0; i < kHistorySize; ++i) {
@@ -117,6 +119,11 @@ namespace HiggsMotion {
     }
     Snapshot ControllerTracking::Copy(bool isLeft) const { std::scoped_lock lock(mutex_); return state_.hands[isLeft ? 0 : 1].snapshot; }
     std::array<Snapshot, 2> ControllerTracking::CopyAll() const { std::scoped_lock lock(mutex_); return { state_.hands[0].snapshot, state_.hands[1].snapshot }; }
+    CopiedTracking ControllerTracking::CopyObservation() const {
+        std::scoped_lock lock(mutex_);
+        return { {state_.hands[0].snapshot, state_.hands[1].snapshot}, state_.generation,
+            state_.lastAcceptedObservation, NowNs(), state_.world != 0, state_.loading, state_.exhausted };
+    }
     ControllerTracking& Tracking() { static ControllerTracking tracking; return tracking; }
     std::uint64_t NowNs() {
         return static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now().time_since_epoch()).count());

@@ -14,7 +14,9 @@ Run the standalone checks with `python tests/run_tests.py --build-dir <external-
 
 The [native build prerequisites](docs/native-build-prerequisites.md) distinguish the available SKSE/toolchain from nonportable project paths and the remaining compatible Havok headers.
 
-An internal [controller-motion availability repair](docs/controller-motion.md) clears only affected tracking histories on observed failures, preserves valid five-sample behavior and player/object release motion, and treats unavailable motion separately from stationary motion. It adds no motion ABI or callback-silence freshness guarantee. The standalone command above also runs its actual numeric core and extracted callback/consumer fixtures; `--motion-only` selects those checks alone. Native plugin/game qualification remains pending.
+An internal [controller-motion availability repair](docs/controller-motion.md) clears only affected tracking histories on observed failures, preserves valid five-sample behavior and player/object release motion, and treats unavailable motion separately from stationary motion. It adds no callback-silence freshness guarantee. The standalone command above also runs its actual numeric core and extracted callback/consumer fixtures; `--motion-only` selects the motion checks. Native plugin/game qualification remains pending.
+
+The additive [read-only velocity ABI](docs/velocity-observation.md) copies that existing owner's physical-hand pair, cached velocity/history metrics, private continuity state and producer-computed observation age. Consumers choose an explicit age policy; last-observed availability is not current tracking or palm validity. The separate C header/export preserves official001 and scoped restrictions. `--motion-abi-only` runs its actual core, C/C++ consumers and isolated DLL discovery checks without claiming a full native-plugin build.
 
 This mod is complicated.
 

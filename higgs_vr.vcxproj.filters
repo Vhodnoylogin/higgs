@@ -167,5 +167,10 @@
     <ClInclude Include="include\draw.h">
       <Filter>include</Filter>
     </ClInclude>
+    <ClInclude Include="include\higgsmotion.h"><Filter>include</Filter></ClInclude>
+    <ClInclude Include="include\motion_runtime.h"><Filter>include</Filter></ClInclude>
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="src\motion_runtime.cpp"><Filter>src</Filter></ClCompile>
   </ItemGroup>
 </Project>

@@ -1,6 +1,6 @@
 # Internal controller-motion availability
 
-This repair concerns observed tracking failures. It adds no public motion ABI and preserves the official 001 header and implementation bytes. The native HIGGS plugin remains unbuilt/unqualified without the compatible Havok headers described in [native-build-prerequisites.md](native-build-prerequisites.md).
+This repair concerns observed tracking failures and preserves the official 001 header and implementation bytes. The separate additive [read-only velocity ABI](velocity-observation.md) copies its existing observations without adding sampling or a freshness policy. The native HIGGS plugin remains unbuilt/unqualified without the compatible Havok headers described in [native-build-prerequisites.md](native-build-prerequisites.md).
 
 ## Policy
 
@@ -18,7 +18,7 @@ The pose callback has no compositor-result status or hardware sample timestamp. 
 
 Existing Update world observations feed private continuity state; there is no extra engine world lookup or public world authority. World loss/change, load start and new game clear both histories. Loading blocks observations until load end and a subsequent valid world observation. An internal generation captured before engine conversion prevents an old in-flight observation from restoring data after a lifecycle reset. Role-device changes reset only that hand. Internal generation exhaustion fails closed without wrapping. Initialization is guarded before engine access.
 
-`BeginObservation` atomically captures that generation and reserves a monotonically increasing observation ticket before any engine work. Only issued tickets newer than the last accepted observation can publish. Thus an earlier conversion finishing late cannot replace a later accepted valid **or invalid** observation, including equal observation-clock timestamps. Lifecycle resets do not reuse ticket numbers. The final uint64 ticket may publish; the next reservation attempt enters terminal unavailable state, clears both histories and rejects all outstanding tickets. Neither reset nor a new world resurrects this exhausted owner. Snapshot `lastAcceptedObservation` is internal test/diagnostic metadata, not a public API or a time-based freshness promise.
+`BeginObservation` atomically captures that generation and reserves a monotonically increasing observation ticket before any engine work. Only issued tickets newer than the last accepted observation can publish. Thus an earlier conversion finishing late cannot replace a later accepted valid **or invalid** observation, including equal observation-clock timestamps. Lifecycle resets do not reuse ticket numbers. The final uint64 ticket may publish; the next reservation attempt enters terminal unavailable state, clears both histories and rejects all outstanding tickets. Neither reset nor a new world resurrects this exhausted owner. The additive velocity ABI exposes current-scope per-hand tickets and a separately named process watermark; neither is a time-based freshness promise.
 
 Only finite inputs/results and proper finite rotation matrices are accepted. Rotation checks use a numerical tolerance of 0.001; this is not a time/freshness threshold. Input validation and both velocity components precede one publication, so invalid angular data cannot publish a new linear sample alongside an old angular sample.
 

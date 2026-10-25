@@ -54,13 +54,15 @@ def audit_integration():
     ns = {"p": "http://schemas.microsoft.com/developer/msbuild/2003"}
     project = ET.parse(ROOT / "higgs_vr.vcxproj").getroot()
     sources = {node.attrib["Include"] for node in project.findall(".//p:ClCompile[@Include]", ns)}
-    for source in [r"src\synergy_core.cpp", r"src\synergy_runtime.cpp"]:
+    for source in [r"src\synergy_core.cpp", r"src\synergy_runtime.cpp", r"src\motion_runtime.cpp"]:
         if source not in sources:
             raise RuntimeError(f"Native project lacks production source: {source}")
     if r"src\controller_tracking.cpp" not in sources:
         raise RuntimeError("Native project lacks the motion history owner")
     if "HIGGS_QuerySynergyInterface" not in (ROOT / "exports.def").read_text():
         raise RuntimeError("Native DLL export is missing")
+    if "HIGGS_QueryMotionInterface" not in (ROOT / "exports.def").read_text():
+        raise RuntimeError("Native velocity observation export is missing")
     # Verify the production policy is consumed by native callsites, not only tests.
     hand = (ROOT / "src/hand.cpp").read_text()
     main = (ROOT / "src/main.cpp").read_text()
@@ -108,18 +110,76 @@ def run_motion_checks(output):
             run(["g++", "-std=c++20", "-Wall", "-Wextra", "-Werror", "-O2", "-pthread", *legacy_warning,
                  f"-I{include}", f"-I{output}", core, source, "-o", exe], output)
             run([exe], output)
+    run_velocity_checks(output)
+
+
+def run_velocity_checks(output):
+    include = ROOT / "include"
+    sources = [ROOT / "src/controller_tracking.cpp", ROOT / "src/motion_runtime.cpp"]
+    commands = []
+    environment = msvc_environment() if os.name == "nt" else None
+    def invoke(label, arguments):
+        command = [str(arg) for arg in arguments]
+        commands.append(command)
+        result = subprocess.run(command, cwd=output, env=environment, capture_output=True)
+        log = result.stdout + result.stderr
+        (output / (label + ".log")).write_bytes(log)
+        print(log.decode(errors="replace"), end="", flush=True)
+        if result.returncode:
+            raise RuntimeError(f"{label} failed; see {output / (label + '.log')}")
+        return log.decode(errors="replace")
+    if os.name == "nt":
+        compiler = shutil.which("cl", path=environment.get("PATH"))
+        cflags = [compiler,"/nologo","/std:c11","/W4","/WX","/TC",f"/I{include}"]
+        flags = [compiler,"/nologo","/std:c++20","/EHsc","/W4","/WX","/O2",f"/I{include}"]
+        obj = output / "motion_c_consumer.obj"
+        invoke("motion-c-compile",[*cflags,"/c",ROOT/"tests/motion_c_consumer.c",f"/Fo{obj}"])
+        exe = output / "motion_abi_tests.exe"
+        invoke("motion-abi-compile",[*flags,*sources,ROOT/"tests/motion_abi_tests.cpp",obj,f"/Fe{exe}"])
+        tested = invoke("motion-abi-run",[exe])
+        definition = output / "motion_probe.def"
+        definition.write_text("EXPORTS\n    HIGGS_QueryMotionInterface\n    MotionFixtureControl\n",encoding="ascii")
+        dll = output / "motion_probe.dll"
+        invoke("motion-dll-compile",[*flags,"/LD",*sources,ROOT/"tests/motion_dll_fixture.cpp",f"/Fe{dll}","/link","/MACHINE:X64",f"/DEF:{definition}"])
+        probe = output / "motion_dll_probe.exe"
+        invoke("motion-probe-compile",[*cflags,ROOT/"tests/motion_dll_probe.c",f"/Fe{probe}"])
+    else:
+        obj = output / "motion_c_consumer.o"
+        invoke("motion-c-compile",["cc","-std=c11","-Wall","-Wextra","-Werror",f"-I{include}","-c",ROOT/"tests/motion_c_consumer.c","-o",obj])
+        flags = ["g++","-std=c++20","-Wall","-Wextra","-Werror","-O2","-pthread",f"-I{include}"]
+        exe = output / "motion_abi_tests"
+        invoke("motion-abi-compile",[*flags,*sources,ROOT/"tests/motion_abi_tests.cpp",obj,"-o",exe])
+        tested = invoke("motion-abi-run",[exe])
+        dll = output / "motion_probe.so"
+        invoke("motion-dll-compile",[*flags,"-shared","-fPIC",*sources,ROOT/"tests/motion_dll_fixture.cpp","-o",dll])
+        probe = output / "motion_dll_probe"
+        invoke("motion-probe-compile",["cc","-std=c11","-Wall","-Wextra","-Werror",f"-I{include}",ROOT/"tests/motion_dll_probe.c","-ldl","-o",probe])
+    tested += invoke("motion-probe-run",[probe,dll])
+    paths = ["include/higgsmotion.h","include/controller_tracking.h","include/motion_runtime.h","src/controller_tracking.cpp","src/motion_runtime.cpp",
+             "tests/motion_abi_tests.cpp","tests/motion_c_consumer.c","tests/motion_dll_fixture.cpp","tests/motion_dll_probe.c","tests/run_tests.py",
+             "higgs_vr.vcxproj","higgs_vr.vcxproj.filters","exports.def","README.md","docs/controller-motion.md","docs/velocity-observation.md"]
+    manifest = {"commands":commands,"results":tested,"sourcePins":{name:hashlib.sha256((ROOT/name).read_bytes()).hexdigest() for name in paths},
+        "isolatedModule":str(dll),"isolatedModuleSha256":hashlib.sha256(dll.read_bytes()).hexdigest(),
+        "nativePluginBuilt":False,"gameStarts":0,"skips":0,
+        "qualification":"Actual numeric owner and ABI module with C/C++ consumers. Synthetic lifecycle/observation events; no engine, hardware or full native-plugin qualification."}
+    (output/"motion-abi-manifest.json").write_text(json.dumps(manifest,indent=2)+"\n")
 
 
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--build-dir", required=True, type=Path)
-    parser.add_argument("--motion-only", action="store_true", help="run the motion core and extracted native-source fixture only")
+    modes=parser.add_mutually_exclusive_group()
+    modes.add_argument("--motion-only", action="store_true", help="run motion core, extracted native-source fixture and read-only velocity ABI")
+    modes.add_argument("--motion-abi-only", action="store_true", help="run the read-only velocity ABI/core/C consumers and isolated module")
     args = parser.parse_args()
     output = args.build_dir.resolve()
     if output == ROOT or ROOT in output.parents:
         parser.error("--build-dir must be outside the repository")
     output.mkdir(parents=True, exist_ok=True)
     audit_integration()
+    if args.motion_abi_only:
+        run_velocity_checks(output)
+        return 0
     if args.motion_only:
         run_motion_checks(output)
         return 0
