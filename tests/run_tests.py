@@ -184,7 +184,7 @@ def main():
         run_motion_checks(output)
         return 0
     include = ROOT / "include"
-    sources = [ROOT / "src/synergy_core.cpp", ROOT / "src/synergy_runtime.cpp", ROOT / "tests/synergy_tests.cpp"]
+    sources = [ROOT / "src/synergy_core.cpp", ROOT / "src/synergy_runtime.cpp", ROOT / "src/hand_broker.cpp", ROOT / "src/hand_runtime.cpp", ROOT / "tests/synergy_tests.cpp"]
     if os.name == "nt":
         env = msvc_environment()
         compiler = shutil.which("cl", path=env.get("PATH"))
@@ -202,7 +202,7 @@ def main():
         definition.write_text("EXPORTS\n    HIGGS_QuerySynergyInterface\n", encoding="ascii")
         dll = output / "synergy_probe.dll"
         run([compiler, "/nologo", "/std:c++20", "/EHsc", "/W4", "/WX", "/O2", "/LD", f"/I{include}",
-             *sources[:2], f"/Fe{dll}", "/link", "/MACHINE:X64", f"/DEF:{definition}"], output, env)
+             *sources[:-1], f"/Fe{dll}", "/link", "/MACHINE:X64", f"/DEF:{definition}"], output, env)
         probe = output / "synergy_dll_probe.exe"
         run([compiler, "/nologo", "/std:c11", "/W4", "/WX", "/TC", f"/I{include}",
              ROOT / "tests/synergy_dll_probe.c", f"/Fe{probe}", "/link", "/MACHINE:X64"], output, env)
@@ -216,6 +216,7 @@ def main():
              *sources, obj, "-o", exe], output)
         run([exe], output)
     run_motion_checks(output)
+    run([sys.executable, ROOT / "tests/run_hand_tests.py", "--build-dir", output / "hands"], output)
     return 0
 
 

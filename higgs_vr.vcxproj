@@ -269,4 +269,13 @@
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
   </ImportGroup>
+  <ItemGroup>
+    <ClCompile Include="src\hand_broker.cpp" />
+    <ClCompile Include="src\hand_runtime.cpp" />
+    <ClCompile Include="src\hand_native.cpp" />
+    <ClInclude Include="include\hand_broker.h" />
+    <ClInclude Include="include\higgshandapi.h" />
+    <ClInclude Include="include\higgshandrouting.h" />
+    <ClInclude Include="include\higgshandoperations.h" />
+  </ItemGroup>
 </Project>

@@ -378,7 +378,7 @@ namespace Config {
 
     const std::string & GetConfigPath();
 
-    std::string GetConfigOption(const char * section, const char * key);
+    std::string GetConfigOption(const char * section, const char * key, bool *truncated = nullptr);
 
     bool GetConfigOptionDouble(const char *section, const char *key, double *out);
     bool GetConfigOptionFloat(const char *section, const char *key, float *out);

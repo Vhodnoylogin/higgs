@@ -181,7 +181,7 @@ struct Hand
     bool FindFarObject(bhkWorld *world, const Hand &other, const NiPoint3 &hkPalmNodePos, const NiPoint3 &castDirection, const NiPoint3 &hkHmdPos, const NiPoint3 &hmdForward, const bhkSimpleShapePhantom *sphere,
         NiPointer<TESObjectREFR> &closestObj, NiPointer<bhkRigidBody> &closestRigidBody, hkVector4 &closestPoint);
     bool FindOtherWeapon(bhkWorld *world, const Hand &other, const NiPoint3 &startPos, const NiPoint3 &castDirection, const bhkSimpleShapePhantom *sphere, hkVector4 &hitPoint);
-    void CreateHandCollision(bhkWorld *world);
+    void CreateHandCollision(bhkWorld *world, const NiPoint3 *halfExtentsOverride = nullptr);
     void RemoveHandCollision(bhkWorld *world);
     void RemoveHandCollisionFromCurrentWorld();
     void UpdateHandCollision(bhkWorld *world);
@@ -340,6 +340,7 @@ struct Hand
 
     bool externalGrabRequested = false;
     NiPointer<TESObjectREFR> externalGrabRequestedObject = nullptr;
+    bool synergyGrabPending = false; // Broker-owned async acquisition; cancel on revoked request.
 
     double lastSelectedTime = 0; // Timestamp of the last time we were pointing at something valid
     double grabRequestedTime = 0; // Timestamp when the trigger was pressed

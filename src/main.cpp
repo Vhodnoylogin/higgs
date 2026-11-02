@@ -38,6 +38,7 @@
 #include "papyrusapi.h"
 #include "pluginapi.h"
 #include "synergy_runtime.h"
+#include "hand_broker.h"
 #include "math_utils.h"
 #include "physics.h"
 #include "main.h"
@@ -638,6 +639,9 @@ void Update()
     g_totalMassThisFrameAccumulator = 0.f; // reset this before hand updates which add to it
     g_thisFrameObjectMassRegisteredBodies.clear();
 
+    auto handBrokerPhase = HiggsHands::Service().NativePhase();
+    HiggsHands::DrainNative();
+    HiggsHands::Service().BeginHandMutation(HiggsHands::Now());
     firstHandToUpdate->PreUpdate(*lastHandToUpdate, world);
     lastHandToUpdate->PreUpdate(*firstHandToUpdate, world);
 
@@ -646,6 +650,7 @@ void Update()
 
     firstHandToUpdate->PostUpdate(*lastHandToUpdate, world);
     lastHandToUpdate->PostUpdate(*firstHandToUpdate, world);
+    HiggsHands::FinishNative();
 
     ClearStaleDampedBodies(world);
 

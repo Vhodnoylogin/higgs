@@ -14,6 +14,7 @@
 #include "RE/havok.h"
 #include "RE/offsets.h"
 #include "hand.h"
+#include "hand_broker.h"
 #include "config.h"
 #include "main.h"
 #include "finger_curves.h"
@@ -544,6 +545,7 @@ void PostVRIKPCUpdateHook(NiNode *thirdPersonRoot, NiAVObject::ControllerUpdateC
     g_rightHand->PostVrikUpdate();
     g_leftHand->PostVrikUpdate();
 
+    HiggsHands::PublishNative();
     HiggsPluginAPI::TriggerPostVrikPostHiggsCallbacks();
 }
 

@@ -173,4 +173,13 @@
   <ItemGroup>
     <ClCompile Include="src\motion_runtime.cpp"><Filter>src</Filter></ClCompile>
   </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="src\hand_broker.cpp"><Filter>src</Filter></ClCompile>
+    <ClCompile Include="src\hand_runtime.cpp"><Filter>src</Filter></ClCompile>
+    <ClCompile Include="src\hand_native.cpp"><Filter>src</Filter></ClCompile>
+    <ClInclude Include="include\hand_broker.h"><Filter>include</Filter></ClInclude>
+    <ClInclude Include="include\higgshandapi.h"><Filter>include</Filter></ClInclude>
+    <ClInclude Include="include\higgshandrouting.h"><Filter>include</Filter></ClInclude>
+    <ClInclude Include="include\higgshandoperations.h"><Filter>include</Filter></ClInclude>
+  </ItemGroup>
 </Project>

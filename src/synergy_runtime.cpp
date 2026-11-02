@@ -1,5 +1,6 @@
 #include "synergy_runtime.h"
 #include "synergy_core.h"
+#include "hand_broker.h"
 
 #include <chrono>
 #include <cstring>
@@ -92,8 +93,8 @@ namespace HiggsSynergy {
     void SetLegacyHandDisabled(bool isLeft, bool disabled) { Service().SetLegacyHandDisabled(isLeft, disabled); }
     void SetLegacyWeaponCollisionDisabled(bool isLeft, bool disabled) { Service().SetLegacyWeaponCollisionDisabled(isLeft, disabled); }
     void ForceLegacyWeaponCollision(bool isLeft) { Service().ForceLegacyWeaponCollision(isLeft); }
-    void ObserveWorld(std::uintptr_t identity) { Service().ObserveWorld(identity, NowMs()); }
-    void BeginGameLoad() { Service().BeginGameLoad(); }
-    void EndGameLoad() { Service().EndGameLoad(); }
-    void NewGame() { Service().NewGame(); }
+    void ObserveWorld(std::uintptr_t identity) { Service().ObserveWorld(identity, NowMs()); HiggsHands::ObserveWorld(identity); }
+    void BeginGameLoad() { Service().BeginGameLoad(); HiggsHands::BeginLoad(); }
+    void EndGameLoad() { Service().EndGameLoad(); HiggsHands::EndLoad(); }
+    void NewGame() { Service().NewGame(); HiggsHands::NewGame(); }
 }
