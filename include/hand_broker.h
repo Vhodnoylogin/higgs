@@ -1,9 +1,11 @@
 #pragma once
 #include "hand_input_extended.h"
+#include "higgsinputcontext.h"
 #include "higgsgrantmutation.h"
 #include "higgshandapi.h"
 #include "higgshandoperations.h"
 #include "higgshanduse.h"
+#include "higgshandusetransition.h"
 #include "higgstransactions.h"
 #include <array>
 #include <condition_variable>
@@ -35,7 +37,8 @@ class Broker
     HIGGS_HandStatus ReserveDomain(uint64_t, uint64_t, uint32_t, uint64_t, uint64_t, uint32_t, HIGGS_ActionRequest &,
                                    uint64_t);
     bool DomainAlive(uint64_t, uint64_t, uint64_t);
-    HIGGS_HandStatus ReserveEffectAuthority(uint64_t, uint64_t, uint32_t, HIGGS_ActionRequest &, uint64_t);
+    HIGGS_HandStatus ReserveEffectAuthority(uint64_t, uint64_t, uint32_t, HIGGS_ActionRequest &, uint64_t,
+                                          uint64_t dependencyGrant=0, uint32_t dependencyHands=0);
     HIGGS_HandStatus RenewEffectAuthority(uint64_t, uint64_t, uint32_t, uint64_t);
     HIGGS_HandStatus ClaimActuator(uint64_t request, uint32_t kind);
     void UnclaimActuator(uint64_t request);
@@ -62,6 +65,15 @@ class Broker
     void PrimeInputFrame(const HIGGS_ControllerFrame &);
     void AdvanceInputRecognitions(const HIGGS_ControllerFrame &);
     uint64_t InputSuppressionMask(uint32_t);
+    void SetInputContext(uint32_t activeMenus, Clock);
+    void ObserveContextFrame(const HIGGS_ControllerFrame &);
+    bool GameplayInput(uint32_t hand, uint32_t button);
+    bool GameplayContext();
+    bool RebaseNativeInput(uint32_t hand);
+    void ContextSuppression(uint32_t hand, uint64_t frame, uint64_t &pressed, uint64_t &touched);
+    HIGGS_HandStatus CopyInputContext(uint64_t, HIGGS_InputContextState &);
+    HIGGS_HandStatus CopyInputFrameContext(uint64_t, uint64_t, HIGGS_InputContextFrame &);
+    HIGGS_HandStatus ContextEvents(uint64_t, HIGGS_InputContextCallback, void *, uint64_t &);
     using PhysicalDispatch = bool (*)(const HIGGS_PhysicalRequest &, void *);
     void DrainPhysical(PhysicalDispatch, void *, Clock);
     void SemanticEvent(uint32_t type, uint32_t hand, uint32_t ref, Clock);
@@ -73,6 +85,8 @@ class Broker
     HIGGS_HandStatus HandUse(uint64_t, const HIGGS_HandUseRequest &, HIGGS_HandUseState &, uint64_t);
     HIGGS_HandStatus ReadHandUse(uint64_t, uint64_t, uint64_t, uint32_t, HIGGS_HandUseState &, uint64_t);
     HIGGS_HandStatus EndHandUse(uint64_t, uint64_t, uint64_t);
+    HIGGS_HandStatus CopyHandUseTransition(uint64_t, uint64_t, HIGGS_HandUseTransitionState &, uint64_t);
+    HIGGS_HandStatus ResizeHandUse(uint64_t, const HIGGS_HandUseTransitionRequest &, HIGGS_HandUseTransitionState &, uint64_t);
     void DrainHandUses();
     bool PhysicalPending(uint32_t hand, Clock);
     uint64_t Epoch() const;
@@ -81,7 +95,7 @@ class Broker
     uint64_t SecondaryEpisode(uint32_t) const;
     HIGGS_HandSnapshot CopyPublished() const;
     void ApplyDeferredWorld();
-    bool MutationAdmissionReady();
+    bool MutationAdmissionReady(bool recovery = false);
     void MarkMainThread();
     HIGGS_HandStatus WithAuthorizedAction(uint64_t, const HIGGS_GrantedMutationRequest &, HIGGS_GrantedMutationCallback,
                                           void *, HIGGS_ActionResult &);
@@ -119,6 +133,7 @@ class Broker
         HIGGS_HandEventCallback events = nullptr;
         HIGGS_TransferExecutorCallback transfer = nullptr;
         HIGGS_InputRecognizerSpec input{};
+        HIGGS_InputContextCallback inputContext = nullptr;
         void *context = nullptr;
         std::vector<std::pair<uint64_t, uint32_t>> routes;
     };
@@ -144,7 +159,11 @@ class Broker
         uint64_t inputDownAt = 0, inputLastReleaseAt = 0;
         uint64_t inputExecutionExpires = 0, inputHandGenerations[2]{};
         uint64_t inputRegistration = 0;
+        uint64_t inputContextGeneration = 0;
         uint32_t sessionKind = 0;
+        uint64_t sessionRevision = 0;
+        uint64_t dependencyGrant = 0;
+        uint32_t dependencyHands = 0;
         bool sessionNotified = false;
     };
     HIGGS_HandStatus Add(HIGGS_HandClient, uint32_t, HIGGS_RecognizerCallback, HIGGS_ExecutorCallback,
@@ -156,7 +175,10 @@ class Broker
     void ExpireLocked(Clock);
     bool EligibleLocked(uint32_t hands) const;
     bool GrantReadyLocked(uint64_t owner, uint64_t grant) const;
-    bool InputEligibleLocked(uint32_t hands, uint64_t executorOwner, uint64_t parentGrant) const;
+    bool InputEligibleLocked(uint32_t hands, uint64_t executorOwner, uint64_t parentGrant,
+                             bool maintainingRecognition = false) const;
+    bool GameplayInputLocked(uint32_t hand, uint32_t button) const;
+    HIGGS_InputContextState ContextStateLocked() const;
     bool RoutedLocked(uint64_t executor, uint64_t recognizer, uint32_t hands);
     int32_t PriorityLocked(const Client &, bool &overridden) const;
     void RefreshLocked();
@@ -176,7 +198,18 @@ class Broker
     std::vector<std::shared_ptr<Registration>> registrations_;
     std::array<Action, 256> actions_{};
     std::array<HIGGS_InputDecision, 256> decisions_{};
+    std::array<uint64_t, 256> decisionContexts_{};
     std::vector<HIGGS_HandEvent> pendingEvents_;
+    std::vector<std::pair<HIGGS_InputContextState, HIGGS_InputContextState>> pendingContexts_;
+    uint32_t contextMenus_ = 0;
+    uint64_t contextGeneration_ = 1, contextChangedAt_ = 0;
+    struct ContextHand {
+        uint64_t frame = 0, pressed = 0, touched = 0, drainPressed = 0, drainTouched = 0;
+        uint32_t device = UINT32_MAX;
+        uint64_t nativeGeneration = 0;
+        bool known = false, touchGrip = false;
+    } contextHands_[2];
+    std::array<HIGGS_InputContextFrame, 128> contextFrames_{};
     HIGGS_HandSnapshot snapshot_{};
     uint32_t nativeUnavailableReasons_[2]{};
     uint64_t secondaryEpisodes_[2]{};

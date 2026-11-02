@@ -127,6 +127,10 @@ void TargetRevisionsAndFreshness()
     f->support.Applied(id, f->now + 3);
     CHECK(f->State(id).appliedRevision == 2);
     CHECK(f->support.Update(f->owner, id, update) == HIGGS_HAND_STALE);
+    f->broker.SetInputContext(1,f->now);update.expectedRevision=2;update.targetLocalPoint[0]=3;
+    CHECK(f->support.Update(f->owner,id,update)==HIGGS_HAND_NOT_READY);
+    update.targetLocalPoint[0]=2;CHECK(!f->support.Update(f->owner,id,update));
+    CHECK(f->State(id).requestRevision==3);f->broker.SetInputContext(0,f->now);
     CHECK(!f->support.End(f->owner, id, request.epoch));
     CHECK(!f->support.Goal(HIGGS_HAND_LEFT, target, f->now + 4));
     f->cleanupReady = false;

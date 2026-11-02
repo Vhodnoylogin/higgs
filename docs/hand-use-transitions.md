@@ -1,0 +1,15 @@
+# Changing a live hand-use footprint
+
+The separately negotiated `HIGGS_QueryHandUseTransitionInterface` version 1 adds `Copy` and `Resize` without changing HandUse version 1 or interface 001. It solves a specific consumer case: an insect is held with one hand, a second hand joins its pinch, then that second hand leaves while the original hold continues. Ending and reacquiring both hands would expose a competing-consumer window; reserving both from the beginning would unnecessarily occupy the free hand.
+
+The caller owns a live HandUse request. `Copy` returns its footprint revision and the existing copied HandUse state. The caller obtains current physical-hand generations through Hand.CopySnapshot, then submits the desired complete hand mask, expected revision, generations and renewal duration. `Resize` validates and changes the complete footprint under the same broker lock. The original request, grant, executor, kind and consumer context identities remain unchanged. Existing authority on retained hands is never dropped and reacquired. A failure preserves the live footprint; normal independent timeout/load invalidation still applies.
+
+Adding a hand requires that hand to be eligible now. A competing owner is never preempted, regardless of priority. Removing a hand is refused while a broker child still has active, retained, native or actuator work on that hand, including a terminal action whose physical cleanup has not drained. End the dependent operation and await actual removal before retrying. Held objects are not implicitly released. The transition does not manufacture a grip, constraint or physical goal.
+
+Every successful Resize advances the footprint revision, even a same-footprint renewal, preventing a delayed transition from applying after an intervening shrink/grow. Legacy HandUse.Renew only renews expiry and does not change this revision. Missing or stale current hand generations, reset authority and expiry cannot be revived. A UI context permits renewal and reduction as cleanup, but refuses expansion. Two simultaneous requests using the same revision have at most one winner.
+
+An executor receives its initial notification once. Resizing before that notification updates the footprint it receives; later changes are observed through Copy. This is deliberately not a stream of synthetic controller events, another executor notification or transferable authority. Existing action receipts remain correlated to the original request.
+
+Nonbutton HandUse admission still occurs immediately in call order. Resize does not add a priority-based collection round for simultaneous contact, dwell or posture proposals. Domain gameplay and which hands to request remain consumer decisions.
+
+The production authority fixture exercises growth/shrink, exact retained grant, competing ownership, stale generations/revisions, retained actuator cleanup, UI renewal/reduction, concurrent CAS and load invalidation. The C consumer pins record sizes and the isolated DLL probe negotiates the new export. Run `python tests/run_hand_tests.py --build-dir <external-directory>`. Full plugin compilation and game qualification are separate evidence.

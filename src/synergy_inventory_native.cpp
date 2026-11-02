@@ -139,6 +139,15 @@ struct Operation {
     uintptr_t locator=0;
     bool compensation=false,consumed=false,left=false;
 };
+bool CrossHandEquipment(const Operation& op,const LiveInventory& live,BaseExtraList* selected){
+    if(selected)return Worn(selected,!op.left);
+    // A plain stack has no exact equipped-list identity. Do not let the engine
+    // choose an already worn same-base instance from the opposite hand.
+    auto actor=static_cast<Actor*>(static_cast<TESObjectREFR*>(op.player));
+    if(actor->GetEquippedObject(!op.left)==op.base)return true;
+    for(auto list:live.lists)if(Worn(list,!op.left))return true;
+    return false;
+}
 class NativeInventory final:public InventoryEngine {
   public:
     uint64_t Capabilities() const override{return HIGGS_INVENTORY_CAP_PLAYER_SELECTION|HIGGS_INVENTORY_CAP_DROP_TO_HAND|HIGGS_INVENTORY_CAP_STORE_HELD|HIGGS_INVENTORY_CAP_CONSUME_HELD|HIGGS_INVENTORY_CAP_GAME_EQUIPMENT;}
@@ -194,13 +203,17 @@ class NativeInventory final:public InventoryEngine {
             if(weapon&&IsTwoHanded(weapon))op.left=false;
             if(!EquipManager::GetSingleton())return {HIGGS_HAND_NOT_READY};
             if(op.kind==HIGGS_TRANSFER_UNEQUIP_GAME&&(!list||!Worn(list,op.left)))return {HIGGS_HAND_STALE};
+            if(op.kind==HIGGS_TRANSFER_EQUIP_GAME&&CrossHandEquipment(op,before,list))return {HIGGS_HAND_UNSUPPORTED};
         }
         if(Conflicts(op))return {HIGGS_HAND_CONFLICT};
         op.beforeTotal=before.total;
         if(!permit.Begin())return {HIGGS_HAND_STALE};
         // No engine pointer from a previous frame is used. Resolve once more after
         // the one-shot permit, immediately before the only mutation call.
-        if(inventory){LiveInventory fresh{};if(!Resolve(*op.selection,fresh,list))return {HIGGS_HAND_STALE};}
+        if(inventory){
+            LiveInventory fresh{};if(!Resolve(*op.selection,fresh,list))return {HIGGS_HAND_STALE};
+            if(op.kind==HIGGS_TRANSFER_EQUIP_GAME&&CrossHandEquipment(op,fresh,list))return {HIGGS_HAND_UNSUPPORTED};
+        }
         else if(!Alive(op.reference)||op.reference->baseForm!=op.base||BSExtraList_GetCount(&op.reference->extraData)!=op.quantity)return {HIGGS_HAND_STALE};
         operations.push_back(op);auto& saved=operations.back();
         if(op.kind==HIGGS_TRANSFER_INVENTORY_TO_HAND){

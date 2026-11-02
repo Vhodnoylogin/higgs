@@ -38,7 +38,8 @@ uint64_t Required(const HIGGS_PhysicalPolicyRequest &r)
 }
 } // namespace
 HIGGS_HandStatus Broker::ReserveEffectAuthority(uint64_t owner, uint64_t epoch, uint32_t duration,
-                                                HIGGS_ActionRequest &out, uint64_t now)
+                                                HIGGS_ActionRequest &out, uint64_t now,
+                                                uint64_t dependencyGrant, uint32_t dependencyHands)
 {
     auto phase = NativePhase();
     std::lock_guard lock(mutex_);
@@ -47,10 +48,14 @@ HIGGS_HandStatus Broker::ReserveEffectAuthority(uint64_t owner, uint64_t epoch, 
         return HIGGS_HAND_INVALID_CLIENT;
     if (epoch != snapshot_.epoch)
         return HIGGS_HAND_STALE;
-    if (!snapshot_.worldReady || worldChangePending_)
+    if (!snapshot_.worldReady || worldChangePending_ || contextMenus_)
         return HIGGS_HAND_NOT_READY;
     if (!duration || duration > 60000)
         return HIGGS_HAND_INVALID_ARGUMENT;
+    if ((dependencyGrant == 0) != (dependencyHands == 0) || (dependencyHands & ~3u))
+        return HIGGS_HAND_INVALID_ARGUMENT;
+    if (dependencyGrant && !InputEligibleLocked(dependencyHands, owner, dependencyGrant))
+        return HIGGS_HAND_WRONG_OWNER;
     auto action = NewActionLocked();
     if (!action)
         return HIGGS_HAND_CAPACITY;
@@ -59,6 +64,8 @@ HIGGS_HandStatus Broker::ReserveEffectAuthority(uint64_t owner, uint64_t epoch, 
     action->request.owner = owner;
     action->request.epoch = epoch;
     action->selected = action->domainOwned = action->retained = true;
+    action->dependencyGrant = dependencyGrant;
+    action->dependencyHands = dependencyHands;
     action->expires = now + uint64_t(duration) * 1000000;
     FinishLocked(*action, HIGGS_ACTION_ACCEPTED, 0);
     out = action->request;
@@ -201,7 +208,8 @@ HIGGS_HandStatus PhysicalPolicyService::Request(uint64_t owner, const HIGGS_Phys
     if (!slot)
         return HIGGS_HAND_CAPACITY;
     HIGGS_ActionRequest authority{};
-    status = broker_.ReserveEffectAuthority(owner, r.epoch, r.durationMs, authority, now);
+    status = broker_.ReserveEffectAuthority(owner, r.epoch, r.durationMs, authority, now,
+                                          r.grant, r.grant ? r.physicalHand : 0);
     if (status)
         return status;
     *slot = {};
@@ -251,6 +259,19 @@ HIGGS_HandStatus PhysicalPolicyService::Update(uint64_t owner, uint64_t id, uint
     auto status = Validate(owner, r, now);
     if (status)
         return status;
+    if (!broker_.GameplayContext()) {
+        const auto &before = state.request;
+        const auto &a = r.item; const auto &b = before.item;
+        if (r.epoch != before.epoch || r.handGeneration != before.handGeneration || r.grabMode != before.grabMode ||
+            r.massMultiplier != before.massMultiplier || r.inertiaMultiplier != before.inertiaMultiplier ||
+            a.structSize != b.structSize || a.kind != b.kind || a.epoch != b.epoch || a.instance != b.instance ||
+            a.generation != b.generation || a.provider != b.provider || a.providerKey != b.providerKey ||
+            a.instanceDataVersion != b.instanceDataVersion || a.validFields != b.validFields ||
+            a.baseFormId != b.baseFormId || a.worldRefId != b.worldRefId || a.quantity != b.quantity)
+            return HIGGS_HAND_NOT_READY;
+        for (unsigned i = 0; i < 3; ++i)
+            if (r.centerOfMassOffset[i] != before.centerOfMassOffset[i]) return HIGGS_HAND_NOT_READY;
+    }
     status = broker_.RenewEffectAuthority(owner, id, r.durationMs, now);
     if (status)
         return status;

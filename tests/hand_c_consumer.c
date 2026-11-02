@@ -3,11 +3,15 @@
 #include "higgshandoperations.h"
 #include "higgshandrouting.h"
 #include "higgshanduse.h"
+#include "higgshandusetransition.h"
 #include "higgshaptics.h"
 #include "higgssupport.h"
 #include "higgstransactions.h"
 #include <stddef.h>
 _Static_assert(sizeof(HIGGS_HandRecord) == 120, "hand record x64 ABI");
+_Static_assert(sizeof(HIGGS_HandUseTransitionRequest)==56,"hand transition request ABI");
+_Static_assert(sizeof(HIGGS_HandUseTransitionState)==136,"hand transition state ABI");
+_Static_assert(sizeof(HIGGS_HandUseTransitionInterface)==32,"hand transition table ABI");
 _Static_assert(sizeof(HIGGS_HandSnapshot) == 280, "hand snapshot x64 ABI");
 _Static_assert(offsetof(HIGGS_HandSnapshot, hands) == 40, "hand pair offset");
 _Static_assert(sizeof(HIGGS_HandInterface) == 120, "hand table x64 ABI");

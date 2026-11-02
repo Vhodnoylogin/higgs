@@ -13,5 +13,18 @@ int main(){try{
     state.unPacketNum++;state.ulButtonPressed=(UINT64_C(1)<<1)|(UINT64_C(1)<<0);state.rAxis[0].x=.4f;state.rAxis[1].x=.7f;state.rAxis[2].x=.9f;state.rAxis[3].x=.8f;leftHand.synthesize=true;ControllerStateCB(1,&state,sizeof(state),result);REQUIRE_NATIVE(submitted==HIGGS_HAND_OK&&executions==1&&updatesAtExecute==1);REQUIRE_NATIVE(state.ulButtonPressed==(UINT64_C(1)<<0));HIGGS_ControllerFrame frame{};REQUIRE_NATIVE(InputFrames().Latest(1,frame)&&frame.pressed==((UINT64_C(1)<<1)|(UINT64_C(1)<<0))&&frame.axisValidMask==3&&frame.axisTypes[2]==HIGGS_AXIS_NONE&&frame.axisTypes[3]==HIGGS_AXIS_UNKNOWN&&frame.axes[2][0]==0&&frame.axes[3][0]==0);
     state.ulButtonPressed=UINT64_C(1)<<1;ControllerStateCB(1,&state,sizeof(state),result);REQUIRE_NATIVE(!state.ulButtonPressed&&executions==1);state.ulButtonPressed=0;ControllerStateCB(1,&state,sizeof(state),result);REQUIRE_NATIVE(!state.ulButtonPressed&&executions==1);leftHand.synthesize=false;
     system.right=1;ControllerStateCB(1,&state,sizeof(state),result);REQUIRE_NATIVE(leftHand.updates==4);system.right=2;
-    REQUIRE_NATIVE(Service().Unregister(client)==HIGGS_HAND_OK);std::cout<<"PASS actual native input callback "<<nativeChecks<<" checks; explicit hand/device seams\n";return 0;
+    // Actual menu callback + actual controller callback, including nested menus.
+    auto menuEvent=[](const char* name,bool opening){MenuOpenCloseEvent event{};event.menuName.data=name;event.opening=opening;MenuChecker::menuEvent.ReceiveEvent(&event,nullptr);};
+    state={};state.ulButtonPressed=(UINT64_C(1)<<2)|(UINT64_C(1)<<33);ControllerStateCB(1,&state,sizeof(state),result);
+    menuEvent("CustomMenu",true);HIGGS_InputContextState context{};REQUIRE_NATIVE(!Service().CopyInputContext(client,context)&&context.kind==HIGGS_CONTEXT_UI&&context.activeMenus==1&&MenuChecker::isGameStopped());
+    state={};state.ulButtonPressed=(UINT64_C(1)<<2)|(UINT64_C(1)<<33);ControllerStateCB(1,&state,sizeof(state),result);REQUIRE_NATIVE(!state.ulButtonPressed);
+    state={};ControllerStateCB(1,&state,sizeof(state),result);state.ulButtonPressed=UINT64_C(1)<<1;ControllerStateCB(1,&state,sizeof(state),result);REQUIRE_NATIVE(state.ulButtonPressed==(UINT64_C(1)<<1)&&executions==1);
+    menuEvent("InventoryMenu",true);menuEvent("CustomMenu",false);REQUIRE_NATIVE(!Service().CopyInputContext(client,context)&&context.kind==HIGGS_CONTEXT_UI&&context.activeMenus==1);
+    const auto generation=context.generation;menuEvent("InventoryMenu",true);menuEvent("HUD Menu",true);menuEvent("UnknownProviderMenu",true);REQUIRE_NATIVE(!Service().CopyInputContext(client,context)&&context.generation==generation);
+    menuEvent("InventoryMenu",false);state.ulButtonPressed=UINT64_C(1)<<1;ControllerStateCB(1,&state,sizeof(state),result);REQUIRE_NATIVE(!state.ulButtonPressed&&executions==1&&!MenuChecker::isGameStopped());
+    state={};ControllerStateCB(1,&state,sizeof(state),result);state.ulButtonPressed=UINT64_C(1)<<1;ControllerStateCB(1,&state,sizeof(state),result);REQUIRE_NATIVE(!state.ulButtonPressed&&executions==2);
+    // Device role replacement cannot turn an already-held button into new Down.
+    system.left=3;state.ulButtonPressed=UINT64_C(1)<<1;ControllerStateCB(3,&state,sizeof(state),result);REQUIRE_NATIVE(!state.ulButtonPressed&&executions==2);state={};ControllerStateCB(3,&state,sizeof(state),result);state.ulButtonPressed=UINT64_C(1)<<1;ControllerStateCB(3,&state,sizeof(state),result);REQUIRE_NATIVE(executions==3);
+    MenuChecker::menuEvent.ReceiveEvent(nullptr,nullptr);
+    REQUIRE_NATIVE(Service().Unregister(client)==HIGGS_HAND_OK);std::cout<<"PASS actual native input/menu callback "<<nativeChecks<<" checks; explicit hand/device seams\n";return 0;
 }catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}}

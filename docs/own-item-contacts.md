@@ -1,0 +1,37 @@
+# Own-item cosmetic contact evidence
+
+The separately negotiated `HIGGS_QueryCosmeticContactInterface` version 1 supplies opt-in copied evidence for contact between items belonging to opposite physical hands. This is the HIGGS-owned policy/evidence part of [PLANCK issue #2](https://github.com/adamhynek/activeragdoll/issues/2), where the player's sword and shield do not produce cosmetic contact feedback. The service does not play audio, pulse hardware, change solver response or apply damage. A consumer can use an admitted record to choose a material-specific sound and request ordinary HIGGS haptics from its safe update phase. A complete feedback consumer and running-game qualification remain necessary; the issue is not claimed fixed.
+
+The original HIGGS 001 API is unchanged. `higgsowncontact.h` is a C-compatible, pointer-free copied interface. The companion `higgsowncontactnative.h` is a separate, tightly scoped bridge for the physics owner; it is not a consumer-facing native-object escape hatch.
+
+## What proves ownership
+
+Both endpoints must match the same retained HIGGS publication, have different physical hands and item episodes, and match actual current bodies in their common world. A base form ID alone never proves identity. Bodies, shapes, their wrappers, world and models remain retained for readers; item and body generations do not derive from recyclable addresses or Havok user data.
+
+Policies explicitly accept provenance bits. `HELD_REFERENCE` proves the actual retained world reference and HIGGS hold episode. `EQUIPPED_UID` adds an existing unambiguous worn UID. `EQUIPPED_COLLIDER` proves the HIGGS-created equipped collider/model/equipment episode, and supports ordinary sword/shield items without a UID. Collider provenance is neither serialized inventory identity nor permission to transfer or consume that inventory item. A UID-only policy never silently accepts collider provenance. Supported equipped sources are drawn one-hand weapons and shields with a verified HIGGS collision clone; unsupported/two-hand/bow sources are not guessed.
+
+An observed equip/UID/container change, HIGGS held transition, weapon-body removal, main publication boundary, load or world change invalidates source readiness. Publication and invalidation share a versioned service commit: an old producer cannot reopen readiness after an intervening invalidation. Physics submission rechecks the same ticket inside that service lock. A source change also filters old copied records, even where the base form is unchanged.
+
+`CopyItems` reports the publication time and separate availability for left-held, left-equipped, right-held and right-equipped sources. Its item array is compact; match entries by `physicalHand` and `source`, rather than indexing it as the availability array. The publication samples the owner's last observed tracking-valid flag and current native model/body evidence. Publication age is not a guarantee of fresh hardware callbacks or protection against callback silence. Missing source evidence must not be inferred from an earlier successful copy.
+
+## Consumer sequence
+
+1. Register an ordinary HIGGS hand client and negotiate the cosmetic interface. Zero native capabilities mean the native producer is not ready. Copy the current item frame and inspect source statuses/provenance.
+2. Request a lease for the current epoch with explicit physical-hand source masks, item-class masks, accepted provenance, relative and closing speed thresholds, cooldown, maximum publication age and desired sound/haptic evidence bits. Leases last at most 60 seconds and require explicit renewal; revisions use compare-and-swap. This passive policy does not require an input grant or suppress another consumer.
+3. Poll `CopyContacts` in a safe consumer phase with an exclusive `afterSequence` cursor. Read actual paired identities and point velocities, choose feedback appropriate to the pair, then schedule existing haptics/audio through their owners. A copied record proves evidence admission, not feedback delivery. Advance the cursor only across records actually received; renew or end the lease explicitly.
+
+The native producer supplies the two velocities at the same contact point, including each body's angular velocity. World-axis positions use metres and velocities use metres/second. The normal points from the right item toward the left item. Relative speed is the magnitude of the velocity difference; closing speed is the nonnegative inward component along this normal. Fast shared translation is not an impact. Reversing Havok's A/B ordering preserves the canonical pair and deduplicates it.
+
+## Bounded histories and coverage
+
+There are 32 policy slots, an eight-pair recent dedup/cooldown history per lease, and one 512-record ring shared across leases. Overflow drops the oldest records. `CopyContacts` reports the current matching required count and returns `BUFFER_TOO_SMALL` without partial records when capacity is insufficient. Invalid record sizes preserve outputs. Ended/expired/old-revision leases, changed sources and records outside the lease's 1–100 ms publication-age policy are not returned. `afterSequence` is exclusive and is not a total-ever count or reliable lossless queue. Consumers needing independent dedup across more than eight alternating pairs must enforce that policy themselves.
+
+`mainFrame` and `physicsTick` are PLANCK-assigned observation counters, not HIGGS clocks or ownership proofs. Coverage is limited to potential, not-already-disabled own-item contacts actually observed by PLANCK's existing listener; capability bits indicate endpoint provenance support and do not promise enumeration of every manifold in the world. A missing event is not evidence that bodies did not touch.
+
+`SERVICE_NO_DAMAGE` says that this service applies no damage. `NATIVE_RESPONSE_DISABLED` and `PLANCK_HIT_PATH_SKIPPED` separately report the actual PLANCK branch. For keyframed own-item pairs, PLANCK retains its existing disabled response and early return. Both-held or neither-held pairs retain their existing early returns. Mixed held/equipped pairs forward evidence and continue the original native path, without a new damage veto. No cosmetic setting changes independent weapon/NPC damage behavior.
+
+The native bridge borrows the caller-owned bodies/world for the complete call. Address values are comparison keys only: HIGGS does not dereference the caller's keys, acquire engine/broker locks, return native pointers or call consumers while handling the contact. Native body ownership and the trusted producer's actual velocities are preconditions; public query discovery is not an authentication boundary against another malicious plugin in the same process.
+
+## Verification and limits
+
+Run `python -B tests/run_own_contact_tests.py --build-dir <external-directory>`. It compiles the production portable C ABI/core and the actual native capture/resolver on explicit engine doubles. Cases cover no-UID collider and strict UID provenance, bilateral motion, source replacement/reversal, synchronous equip invalidation, owner/epoch/lease/revision rules, copied output preservation, bounded ring/cursor behavior and injected invalidation during capture and after copied commit. A negative build removes the publication fence and must fail. The engine doubles do not establish engine layouts, real collision callbacks or delivery of feedback; separate full native compilation checks declarations/layout assertions, not game behavior.

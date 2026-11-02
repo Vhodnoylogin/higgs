@@ -3,6 +3,7 @@
 #include "higgshandoperations.h"
 #include "higgshandrouting.h"
 #include "higgshanduse.h"
+#include "higgshandusetransition.h"
 #include "higgshaptics.h"
 #include "higgsinput.h"
 #include "higgssupport.h"
@@ -46,6 +47,7 @@ int main(int argc, char **argv)
     CHECK_TABLE("HIGGS_QueryTransactionsInterface", HIGGS_TransactionsInterface, HIGGS_QueryTransactionsInterfaceFn);
     CHECK_TABLE("HIGGS_QueryGrantMutationInterface", HIGGS_GrantMutationInterface, HIGGS_QueryGrantMutationInterfaceFn);
     CHECK_TABLE("HIGGS_QueryHandUseInterface", HIGGS_HandUseInterface, HIGGS_QueryHandUseInterfaceFn);
+    CHECK_TABLE("HIGGS_QueryHandUseTransitionInterface", HIGGS_HandUseTransitionInterface, HIGGS_QueryHandUseTransitionInterfaceFn);
     CHECK_TABLE("HIGGS_QueryHapticsInterface", HIGGS_HapticsInterface, HIGGS_QueryHapticsInterfaceFn);
     CHECK_TABLE("HIGGS_QuerySupportInterface", HIGGS_SupportInterface, HIGGS_QuerySupportInterfaceFn);
     CHECK_TABLE("HIGGS_QueryInputInterface", HIGGS_InputInterface, HIGGS_QueryInputInterfaceFn);

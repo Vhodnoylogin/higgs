@@ -186,6 +186,9 @@
     <ClCompile Include="src\hand_transactions.cpp"><Filter>src</Filter></ClCompile>
     <ClCompile Include="src\transaction_runtime.cpp"><Filter>src</Filter></ClCompile>
     <ClCompile Include="src\inventory_service.cpp" />
+    <ClCompile Include="src\own_contact.cpp" />
+    <ClCompile Include="src\own_contact_runtime.cpp" />
+    <ClCompile Include="src\own_contact_native.cpp" />
     <ClCompile Include="src\synergy_inventory_native.cpp" />
     <ClInclude Include="include\hand_transactions.h"><Filter>include</Filter></ClInclude>
     <ClInclude Include="include\higgstransactions.h"><Filter>include</Filter></ClInclude>
@@ -202,6 +205,7 @@
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="src\hand_input_extended.cpp"><Filter>Source</Filter></ClCompile>
+    <ClCompile Include="src\hand_input_context.cpp"><Filter>Source</Filter></ClCompile>
     <ClCompile Include="src\input_runtime.cpp"><Filter>Source</Filter></ClCompile>
     <ClCompile Include="src\hand_support.cpp"><Filter>Source</Filter></ClCompile>
     <ClCompile Include="src\hand_parts.cpp"><Filter>Source</Filter></ClCompile>
@@ -210,6 +214,8 @@
     <ClCompile Include="src\hand_support_native.cpp"><Filter>Source</Filter></ClCompile>
     <ClInclude Include="include\higgsinput.h"><Filter>Header</Filter></ClInclude>
     <ClInclude Include="include\hand_input_extended.h"><Filter>Header</Filter></ClInclude>
+    <ClInclude Include="include\higgsinputcontext.h"><Filter>Header</Filter></ClInclude>
+    <ClInclude Include="include\higgshandusetransition.h"><Filter>Header</Filter></ClInclude>
     <ClInclude Include="include\higgssupport.h"><Filter>Header</Filter></ClInclude>
     <ClInclude Include="include\hand_support.h"><Filter>Header</Filter></ClInclude>
     <ClInclude Include="include\higgshandparts.h"><Filter>Header</Filter></ClInclude>

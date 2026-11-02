@@ -1,5 +1,7 @@
 # Extended controller input and deferred recognition
 
+The separate [menu-context contract](input-context.md) now suspends gameplay admission in supported UI and drains initial/reconnected and cross-boundary held grip/trigger/auxiliary sequences without replay. Raw observations remain available; existing physical use and receipts retain their own lifetimes.
+
 `HIGGS_QueryInputInterface` adds a copied C table alongside the unchanged grip/trigger hand API. It observes a fixed OpenVR catalogue: System, Application Menu, Grip, DPad directions, A, proximity and axis buttons 32–36. Device-specific B/Y bindings normally appear through the controller's application-menu control; consumers use the user's actual control mapping rather than assuming a hardware label. System/proximity are observation-only, and no new private button types can be registered.
 
 Each 144-byte controller record contains the complete original pressed/touched masks, packet number, five axes, actual OpenVR axis types, numeric validity, physical hand, device index, broker epoch/context, producer frame ID and steady-clock observation time. Unsupported/unknown axes do not become stationary-valid values. The latest pair is copied under one owner lock, but its left/right records retain independent sampling times. A 128-record history supports frame cursors. These are callback observation times, not hardware acquisition timestamps; silence retains history and callers must apply their own age bound.

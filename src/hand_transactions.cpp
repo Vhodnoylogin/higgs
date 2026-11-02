@@ -54,7 +54,7 @@ HIGGS_HandStatus Broker::ReserveDomain(uint64_t owner, uint64_t executor, uint32
     ExpireLocked(now);
     if (!ClientLocked(owner))
         return HIGGS_HAND_INVALID_CLIENT;
-    if (worldChangePending_)
+    if (worldChangePending_ || contextMenus_)
         return HIGGS_HAND_NOT_READY;
     if (epoch != snapshot_.epoch)
         return HIGGS_HAND_STALE;
@@ -168,6 +168,8 @@ bool Broker::EnterDomainMutation(uint64_t request, bool cleanup)
         return false;
     if (!cleanup)
     {
+        if (contextMenus_ && action->result.stage < HIGGS_ACTION_COMMITTED)
+            return false;
         if (worldChangePending_ || action->request.epoch != snapshot_.epoch || !ClientLocked(action->request.owner))
             return false;
         for (const auto &hand : snapshot_.hands)
@@ -747,7 +749,7 @@ HIGGS_HandStatus TransactionService::Begin(uint64_t owner, uint64_t id, uint64_t
         return HIGGS_HAND_STALE;
     if (!t->notified || (t->state.stage != HIGGS_TX_EXECUTING && t->state.stage != HIGGS_TX_WAIT_COMPENSATION))
         return HIGGS_HAND_WRONG_PHASE;
-    if (!broker_.MutationAdmissionReady())
+    if (!broker_.MutationAdmissionReady(t->state.stage == HIGGS_TX_WAIT_COMPENSATION))
         return HIGGS_HAND_NOT_READY;
     if (!broker_.InTransferCallback(owner, t->request.executor))
         return HIGGS_HAND_WRONG_PHASE;

@@ -32,6 +32,13 @@ def main():
     if native.count(mutation)!=1:raise RuntimeError('Postfact negative seam changed')
     broken=out/'inventory_missing_event_guard.cpp';broken.write_text('#include "inventory_native_fakes.h"\n'+native.replace(mutation,'false')+'\n#include "inventory_native_cases.h"\n')
     bad=out/'inventory_missing_event_guard.exe';run('negative-compile',[*flags,*sources,broken,obj,f'/Fe{bad}']);run('negative-missing-event-guard',[bad],True)
+    # Each boundary matters: pre-permit refusal protects authority, while the
+    # second fresh read protects against a change during permit admission.
+    for name,bank in [('crosshand-pre','before'),('crosshand-final','fresh')]:
+        guard='if(op.kind==HIGGS_TRANSFER_EQUIP_GAME&&CrossHandEquipment(op,'+bank+',list))return {HIGGS_HAND_UNSUPPORTED};'
+        if native.count(guard)!=1:raise RuntimeError('Cross-hand negative seam changed: '+name)
+        broken=out/(name+'.cpp');broken.write_text('#include "inventory_native_fakes.h"\n'+native.replace(guard,'')+'\n#include "inventory_native_cases.h"\n')
+        bad=out/(name+'.exe');run(name+'-compile',[*flags,*sources,broken,obj,f'/Fe{bad}']);run(name+'-removed',[bad],True)
     for p in paths:
         if hashlib.sha256(p.read_bytes()).hexdigest()!=pins[str(p.relative_to(ROOT))]:raise RuntimeError('Source changed during tests '+str(p))
     (out/'inventory-manifest.json').write_text(json.dumps({'commands':commands,'sourceSha256':pins,'gameStarts':0,'qualification':'Actual copied C ABI, production ticket/coordinator service and actual native adapter source on explicit SDK doubles. Not Skyrim event delivery, vtable/runtime behavior or consumption effect qualification.'},indent=2)+'\n')

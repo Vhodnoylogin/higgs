@@ -19,6 +19,11 @@
 #include <mutex>
 using UInt32 = uint32_t;
 namespace HiggsHands {inline void DrainNativeInventory() { /* Separate inventory fixture executes its real adapter. */ }}
+namespace HiggsHands {
+// The own-item contact suite executes the real native snapshot/observation path.
+inline void InvalidateNativeOwnContacts() {}
+inline void PublishNativeOwnContacts() {}
+}
 struct hkpRigidBody;
 namespace HiggsHands {
 // Articulated-part application/contact behavior has its own actual-source fixture.
@@ -487,8 +492,8 @@ namespace vr_src
 {
 enum EVRButtonId
 {
-    k_EButton_SteamVR_Trigger = 0,
-    k_EButton_Grip = 1
+    k_EButton_SteamVR_Trigger = 33,
+    k_EButton_Grip = 2
 };
 uint64_t ButtonMaskFromId(EVRButtonId b)
 {

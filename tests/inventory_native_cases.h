@@ -129,6 +129,79 @@ void EquipmentAndInvalidation(){
     CHECK(!inventoryApi.ReleaseSelection(owner,selected.ticket));Pump();
     auto pending=Selection(100);Service().ObserveWorld(++worldSerial,false,Now());CHECK(inventoryApi.CopySelection(owner,pending.ticket,&value)==HIGGS_HAND_STALE);DrainNativeInventory();CHECK(inventoryApi.CopySelection(owner,pending.ticket,&value)==HIGGS_HAND_NOT_FOUND);
 }
+HIGGS_TransferExecution EquipmentExecution(uint32_t hand,uint32_t hands){
+    HIGGS_TransferExecution x{};x.requestId=++idempotency;x.phase=HIGGS_TX_EXECUTE;
+    x.request.kind=HIGGS_TRANSFER_EQUIP_GAME;x.request.original.baseFormId=101;x.request.quantity=1;
+    x.request.destinationHand=hand;x.request.expectedEquippedFormId=101;x.current.physicalHands=hands;
+    return x;
+}
+std::shared_ptr<InventorySelectionHandle> NativeWeaponSelection(uint32_t ordinal){
+    HIGGS_InventorySelectionRequest req{sizeof(req),101,Service().Epoch(),ordinal,1,{0,0}};
+    std::shared_ptr<InventorySelectionHandle> selected;uint32_t container=0;
+    CHECK(!nativeInventory.Select(req,selected,container));return selected;
+}
+struct EquipmentChangePermit:Permit{
+    BaseExtraList* list=nullptr;bool oppositeLeft=false;
+    bool Begin()override{
+        ++begins;if(list)list->extras[oppositeLeft?kExtraData_WornLeft:kExtraData_Worn]=nullptr;
+        fakePlayer.equipped[oppositeLeft?0:1]=&sword;return true;
+    }
+};
+void CrossHandEquipmentRefusal(){
+    unsigned refusals=0;
+    for(bool reversed:{false,true})for(uint32_t hand:{uint32_t(HIGGS_HAND_LEFT),uint32_t(HIGGS_HAND_RIGHT)})
+        for(uint32_t hands:{hand,uint32_t(HIGGS_HAND_BOTH)}){
+            Reset();fakeLeftHanded=reversed;const bool targetLeft=reversed!=(hand==HIGGS_HAND_LEFT);
+            const bool oppositeLeft=!targetLeft;auto entry=FakeEntry(&fakePlayer,&sword);auto worn=new BaseExtraList;
+            worn->extras[oppositeLeft?kExtraData_WornLeft:kExtraData_Worn]=nullptr;entry->extendDataList->values.push_back(worn);
+            fakePlayer.equipped[oppositeLeft?0:1]=&sword;
+            // Coherent drawn-equipment observation is empty while Skyrim keeps
+            // the sheathed source equipped. Only fresh native state exposes it.
+            CHECK(!Service().CopyPublished().hands[0].equippedFormId&&!Service().CopyPublished().hands[1].equippedFormId);
+            auto selected=NativeWeaponSelection(1);auto x=EquipmentExecution(hand,hands);Permit permit;const auto calls=fakeEquipCalls;
+            CHECK(nativeInventory.Execute(x,selected,permit).status==HIGGS_HAND_UNSUPPORTED);
+            CHECK(!permit.begins&&fakeEquipCalls==calls&&Worn(worn,oppositeLeft));
+            CHECK(fakePlayer.equipped[oppositeLeft?0:1]==&sword&&!fakePlayer.equipped[targetLeft?0:1]);++refusals;
+            // Null selection stays ambiguous even if a second plain copy exists.
+            selected=NativeWeaponSelection(0);x.requestId=++idempotency;Permit plain;
+            CHECK(nativeInventory.Execute(x,selected,plain).status==HIGGS_HAND_UNSUPPORTED&&!plain.begins&&fakeEquipCalls==calls);++refusals;
+        }
+    // An engine equipment observation alone is also enough to reject ambiguous
+    // plain selection, even before its worn-list metadata is available.
+    Reset();fakePlayer.equipped[0]=&sword;auto selected=NativeWeaponSelection(0);auto x=EquipmentExecution(HIGGS_HAND_RIGHT,HIGGS_HAND_BOTH);Permit ambiguous;
+    const auto calls=fakeEquipCalls;CHECK(nativeInventory.Execute(x,selected,ambiguous).status==HIGGS_HAND_UNSUPPORTED&&!ambiguous.begins&&fakeEquipCalls==calls);++refusals;
+    // The public coordinator must not issue a permit or report an equip when a
+    // sheathed source remains worn by the unreserved opposite hand.
+    Reset();auto entry=FakeEntry(&fakePlayer,&sword);auto worn=new BaseExtraList;worn->extras[kExtraData_WornLeft]=nullptr;entry->extendDataList->values.push_back(worn);fakePlayer.equipped[0]=&sword;
+    auto ticket=Selection(101,1);auto request=Transfer(ticket.item,HIGGS_TRANSFER_EQUIP_GAME);request.destinationHand=HIGGS_HAND_RIGHT;request.expectedEquippedFormId=101;
+    const auto coordinatedCalls=fakeEquipCalls;auto id=Request(request);Transactions().Drain(Now());const auto state=State(id);
+    CHECK(state.stage==HIGGS_TX_CANCELLED&&!state.mutationPermit&&!(state.receiptFlags&HIGGS_TX_NATIVE_EQUIPMENT_CONFIRMED));
+    CHECK(fakeEquipCalls==coordinatedCalls&&fakePlayer.equipped[0]==&sword&&!fakePlayer.equipped[1]);
+    // Preserve existing same-hand and distinct exact-copy behavior. The other
+    // worn UID list does not turn a proven different list into a hand transfer.
+    for(bool sameHand:{false,true}){
+        Reset();entry=FakeEntry(&fakePlayer,&sword);auto exact=new BaseExtraList;auto uid=new ExtraUniqueID;uid->ownerFormId=0x14;uid->uniqueId=41;exact->extras[kExtraData_UniqueID]=uid;entry->extendDataList->values.push_back(exact);
+        if(sameHand){exact->extras[kExtraData_Worn]=nullptr;fakePlayer.equipped[1]=&sword;}
+        else{auto otherList=new BaseExtraList;auto otherId=new ExtraUniqueID;otherId->ownerFormId=0x14;otherId->uniqueId=42;otherList->extras[kExtraData_UniqueID]=otherId;otherList->extras[kExtraData_WornLeft]=nullptr;entry->extendDataList->values.push_back(otherList);fakePlayer.equipped[0]=&sword;}
+        selected=NativeWeaponSelection(1);x=EquipmentExecution(HIGGS_HAND_RIGHT,HIGGS_HAND_RIGHT);Permit safe;const auto safeCalls=fakeEquipCalls;
+        CHECK(!nativeInventory.Execute(x,selected,safe).status&&safe.begins==1&&fakeEquipCalls==safeCalls+1);CHECK(Worn(exact,false));nativeInventory.Forget(x.requestId);
+    }
+    // Pre-permit validation passes. Opposite wear appears while the permit is
+    // issued; final Resolve still succeeds for the plain selection's same count.
+    // The final guard must reject without calling EquipItem.
+    for(bool reversed:{false,true}){
+        Reset();fakeLeftHanded=reversed;entry=FakeEntry(&fakePlayer,&sword);auto otherList=new BaseExtraList;entry->extendDataList->values.push_back(otherList);
+        selected=NativeWeaponSelection(0);x=EquipmentExecution(HIGGS_HAND_RIGHT,HIGGS_HAND_BOTH);EquipmentChangePermit late;late.list=otherList;late.oppositeLeft=!reversed;const auto lateCalls=fakeEquipCalls;
+        CHECK(nativeInventory.Execute(x,selected,late).status==HIGGS_HAND_UNSUPPORTED&&late.begins==1&&fakeEquipCalls==lateCalls);++refusals;
+        CHECK(Worn(otherList,late.oppositeLeft)&&fakePlayer.equipped[late.oppositeLeft?0:1]==&sword);
+        // Changing the exact selected list instead invalidates its selection;
+        // that fresh-resolution rejection likewise must make no engine call.
+        Reset();fakeLeftHanded=reversed;entry=FakeEntry(&fakePlayer,&sword);auto exact=new BaseExtraList;entry->extendDataList->values.push_back(exact);
+        selected=NativeWeaponSelection(1);x=EquipmentExecution(HIGGS_HAND_RIGHT,HIGGS_HAND_BOTH);EquipmentChangePermit stale;stale.list=exact;stale.oppositeLeft=!reversed;
+        CHECK(nativeInventory.Execute(x,selected,stale).status==HIGGS_HAND_STALE&&stale.begins==1&&fakeEquipCalls==lateCalls);
+    }
+    std::printf("PASS cross-hand equipment refuses %u unsafe/ambiguous/late requests; safe same-hand/exact-copy equipment remains\n",refusals);
+}
 void ReuseAndMalformed(){
     Reset();for(int i=0;i<300;++i){auto selected=Selection();CHECK(!inventoryApi.ReleaseSelection(owner,selected.ticket));DrainNativeInventory();}
     HIGGS_InventorySelectionRequest r{sizeof(r),100,Service().Epoch(),0,1,{1,0}};uint64_t id=0;CHECK(inventoryApi.RequestSelection(owner,&r,&id)==HIGGS_HAND_INVALID_ARGUMENT);r.reserved[0]=0;r.quantity=0;CHECK(inventoryApi.RequestSelection(owner,&r,&id)==HIGGS_HAND_INVALID_ARGUMENT);r.quantity=1;r.epoch--;CHECK(inventoryApi.RequestSelection(owner,&r,&id)==HIGGS_HAND_STALE);
@@ -137,6 +210,6 @@ void ReuseAndMalformed(){
 int main(){
     CHECK(!inventory_c_probe());CHECK(!HIGGS_QueryInventoryInterface(1,sizeof(inventoryApi),&inventoryApi));CHECK(inventoryApi.capabilities==0);
     auto& broker=HiggsHands::Service();broker.MarkMainThread();HIGGS_HandClientInfo info{};info.structSize=sizeof(info);std::snprintf(info.name,sizeof(info.name),"native-inventory-test");CHECK(!broker.Register(info,owner));std::snprintf(info.name,sizeof(info.name),"other");CHECK(!broker.Register(info,other));
-    Reset();CHECK(!inventoryApi.GetExecutor(owner,&executor));CoreRoundTrip();MissingPostfacts();Compensation();DelayedFactsAndReset();EngineSelectionAndLock();UIDRelocationAndAmbiguity();PendingUIDRemapLock();Consumption();EquipmentAndInvalidation();ReuseAndMalformed();UnregisteredNativePins();
+    Reset();CHECK(!inventoryApi.GetExecutor(owner,&executor));CoreRoundTrip();MissingPostfacts();Compensation();DelayedFactsAndReset();EngineSelectionAndLock();UIDRelocationAndAmbiguity();PendingUIDRemapLock();Consumption();EquipmentAndInvalidation();CrossHandEquipmentRefusal();ReuseAndMalformed();UnregisteredNativePins();
     std::puts("PASS native selection, actual coordinator round trip, postfact gating, instance locks, consume, equipment, invalidation and retirement");return 0;
 }

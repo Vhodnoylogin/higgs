@@ -235,6 +235,7 @@ void BeginControllerFrame(HIGGS_ControllerFrame frame)
         if (!InputFrames().Publish(frame, events, count))
             return;
         controllerFrames[frame.physicalHand - 1] = frame.frameId;
+        Service().ObserveContextFrame(frame);
         if (frame.flags & HIGGS_INPUT_BASELINE)
             Service().PrimeInputFrame(frame);
         Service().NotifyInputObservations(events.data(), count);
@@ -263,8 +264,10 @@ void FinishControllerFrame(uint32_t hand, uint64_t &pressed, uint64_t &touched)
             Service().AdvanceInputRecognitions(frame);
             mask |= Service().InputSuppressionMask(hand) | InputFrames().Suppression(hand, frame.frameId);
         }
-        pressed &= ~mask;
-        touched &= ~mask;
+        uint64_t pressedMask = mask, touchedMask = mask;
+        Service().ContextSuppression(hand, CurrentControllerFrameId(hand), pressedMask, touchedMask);
+        pressed &= ~pressedMask;
+        touched &= ~touchedMask;
     }
     catch (...)
     {

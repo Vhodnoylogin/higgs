@@ -1,5 +1,11 @@
 # HIGGS ([Nexus link](https://www.nexusmods.com/skyrimspecialedition/mods/43930))
 
+The additive [own-item cosmetic contact service](docs/own-item-contacts.md) supplies HIGGS-owned bilateral item identities, explicit collider/UID provenance, bounded policies and paired contact-point evidence forwarded by PLANCK. It preserves existing combat/solver behavior; audio and haptic presentation remain a consumer responsibility and have not been qualified in game.
+
+The additive [controller menu-context service](docs/input-context.md) hands fresh controls to supported UI, drains held sequences across entry/exit without replay, and preserves existing physical use and committed receipt/recovery paths. It does not infer engine pause or change official001.
+
+The separate [hand-use transition table](docs/hand-use-transitions.md) atomically adds or removes hands from a live session while retaining its original grant. Removal waits for dependent physical cleanup; it does not drop held items or preempt another owner.
+
 The additive [owned physical policies](docs/physical-policies.md) cover constrained held-item mass/inertia/COM, per-hand physics-grab preference, HIGGS finger suppression and controller-node culling. Independent secondary-grip transforms extend the negotiated finite operation service. Their native-source/compiler evidence and remaining presentation limits are documented separately.
 
 ## Proposed cooperation with VRIK HIGGS and PLANCK

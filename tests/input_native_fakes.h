@@ -8,6 +8,12 @@
 #include <iostream>
 #include <stdexcept>
 #include <string>
+#include <unordered_map>
+#include <vector>
+enum class EventResult { kEvent_Continue };
+struct MenuOpenCloseEvent { struct Name { const char* data=nullptr; } menuName; bool opening=false; };
+template<class T> struct EventDispatcher {};
+namespace MenuChecker { class AllMenuEventHandler { public: EventResult ReceiveEvent(MenuOpenCloseEvent*,EventDispatcher<MenuOpenCloseEvent>*); }; }
 namespace vr_src {
 using TrackedDeviceIndex_t=uint32_t;
 enum ETrackedControllerRole{TrackedControllerRole_LeftHand=1,TrackedControllerRole_RightHand=2};

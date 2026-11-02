@@ -96,6 +96,36 @@ int main()
     fixtureLeft.ControllerStateUpdate(0, &input);
     CHECK(!input.ulButtonPressed && !input.ulButtonTouched);
     CHECK(!Service().Remove(consumer.client, consumer.registration));
+    // Actual Hand::ControllerStateUpdate must retire Force/leeway across UI,
+    // preserve possession, and never synthesize a Down/Up when it returns.
+    auto menuFrame = [&](uint64_t pressed, uint64_t touched) {
+        HIGGS_ControllerFrame raw{}; raw.structSize=sizeof(raw); raw.physicalHand=1; raw.deviceIndex=1;
+        raw.flags=HIGGS_INPUT_NO_HARDWARE_TIME|HIGGS_INPUT_GRIP_USES_TOUCH; raw.epoch=Service().Epoch();
+        static uint64_t sample=Now()+1000000; raw.observedAtNs=++sample; raw.pressed=pressed; raw.touched=touched;
+        BeginControllerFrame(raw);vr_src::VRControllerState001_t state{};state.ulButtonPressed=pressed;state.ulButtonTouched=touched;
+        fixtureLeft.ControllerStateUpdate(0,&state);FinishControllerFrame(1,state.ulButtonPressed,state.ulButtonTouched);return state;
+    };
+    Service().SetInputContext(1,Now());MenuChecker::stopped=true;
+    fixtureLeft.inputState=Hand::InputState::Force;fixtureLeft.inputTrigger=fixtureLeft.inputGrip=true;
+    fixtureLeft.triggerDown=fixtureLeft.gripDown=true;fixtureLeft.grabRequested=true;
+    auto uiInput=menuFrame(trigger|grip,grip);CHECK(!uiInput.ulButtonPressed&&!uiInput.ulButtonTouched);
+    CHECK(fixtureLeft.inputState==Hand::InputState::Idle&&!fixtureLeft.grabRequested&&!fixtureLeft.releaseRequested);
+    menuFrame(0,0);uiInput=menuFrame(trigger|grip,grip);CHECK(uiInput.ulButtonPressed==(trigger|grip)&&uiInput.ulButtonTouched==grip);
+    Service().SetInputContext(0,Now());MenuChecker::stopped=false;
+    uiInput=menuFrame(trigger|grip,grip);CHECK(!uiInput.ulButtonPressed&&!uiInput.ulButtonTouched&&!fixtureLeft.grabRequested&&!fixtureLeft.releaseRequested);
+    uiInput=menuFrame(0,0);CHECK(!fixtureLeft.grabRequested&&!fixtureLeft.releaseRequested);
+    uiInput=menuFrame(trigger,0);CHECK(fixtureLeft.grabRequested&&!fixtureLeft.releaseRequested);
+    fixtureLeft.grabRequested=false;fixtureLeft.inputState=Hand::InputState::Idle;
+    fixtureLeft.triggerDown=fixtureLeft.gripDown=false;menuFrame(0,0);fixtureLeft.releaseRequested=false;
+    fixtureLeft.inputState=Hand::InputState::Force;fixtureLeft.inputTrigger=true;
+    fixtureLeft.forceInputTime=g_currentFrameTime;
+    Service().SetInputContext(1,Now());Service().ObserveWorld(2,false,Now());Service().SetInputContext(0,Now());
+    // No controller callback occurred between open/reset/close. The first native
+    // visit in the new lifetime still retires old Force state; the next neutral
+    // sample must not replay it either.
+    uiInput=menuFrame(0,0);CHECK(!uiInput.ulButtonPressed&&!uiInput.ulButtonTouched);
+    uiInput=menuFrame(0,0);CHECK(!uiInput.ulButtonPressed&&!uiInput.ulButtonTouched);
+    CHECK(fixtureLeft.inputState==Hand::InputState::Idle&&!fixtureLeft.inputTrigger&&!fixtureLeft.grabRequested&&!fixtureLeft.releaseRequested);
     // Drawn equipment, holstered selection and unknown arrow use come from real
     // PublishNative source, with fake game nodes rather than asserted game layouts.
     auto owner = RegisterFixture("native-ops");
@@ -154,6 +184,14 @@ int main()
     CHECK(std::fabs(leftBody.transform.m_translation.x - state.operation.position[0] * scaleValue) < 0.00001f);
     CHECK(!Service().CopyOperation(owner, id, state, Now()));
     CHECK(state.flags & HIGGS_OP_APPLIED);
+    const auto supportGeneration=FixtureSnapshot(owner).hands[0].generation;
+    Service().SetInputContext(1,Now());MenuChecker::stopped=true;PublishNative();
+    CHECK(FixtureSnapshot(owner).hands[0].generation==supportGeneration);
+    CHECK(FixtureSnapshot(owner).hands[0].availability==HIGGS_AVAILABILITY_UNAVAILABLE);
+    CHECK(Service().OperationActive(id,Now())&&HasNativeTarget(true));
+    fixtureLeft.MoveHandAndWeaponCollision(NiPoint3(100,0,0));CHECK(Service().OperationActive(id,Now()));
+    Service().SetInputContext(0,Now());MenuChecker::stopped=false;PublishNative();
+    CHECK(FixtureSnapshot(owner).hands[0].generation==supportGeneration&&Service().OperationActive(id,Now()));
     wallBody.m_motion.m_type = hkpMotion::MOTION_DYNAMIC;
     DrainNative();
     CHECK(!HasNativeTarget(true));

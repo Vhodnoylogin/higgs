@@ -6,6 +6,7 @@
 #include "hand_physical_policy.h"
 #include "hand_support.h"
 #include "hand_transactions.h"
+#include "own_contact.h"
 #include "haptic_schedule.h"
 #include "main.h"
 #include "menu_checker.h"
@@ -407,6 +408,7 @@ bool DispatchPhysical(const HIGGS_PhysicalRequest &request, void *)
 } // namespace
 void DrainNative()
 {
+    InvalidateNativeOwnContacts();
     Service().MarkMainThread();
     auto phase = Service().NativePhase();
     if (g_leftHand)
@@ -599,6 +601,7 @@ void PublishNative()
     }
     PublishNativeItems();
     Service().Publish(records, Now());
+    PublishNativeOwnContacts();
     ObserveNativeSamples();
 }
 void PublishNativeItems()

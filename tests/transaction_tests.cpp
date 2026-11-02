@@ -330,6 +330,23 @@ void Abi()
     CHECK(!std::memcmp(&copy, &api, sizeof(api)));
     std::puts("PASS additive transactions C table negotiation");
 }
+void MenuCompensation()
+{
+    auto f=std::make_unique<Fixture>();const auto item=f->DomainItem();auto request=f->Request(HIGGS_TRANSFER_INVENTORY_TO_HAND,item);
+    uint64_t id=0;CHECK(!f->tx.Request(f->owner,request,id,f->now));f->Drain();
+    CHECK(f->executions==1&&f->State(id).stage==HIGGS_TX_WAIT_GRIP);
+    // Inventory already committed; UI cancels the not-yet-entered native grip,
+    // then compensation gets its own permit without pretending a grip happened.
+    f->broker.SetInputContext(1,++f->now);f->Drain(4);const auto result=f->State(id);
+    CHECK(f->compensations==1&&result.stage==HIGGS_TX_COMPLETED&&result.disposition==HIGGS_DISPOSITION_INVENTORY);
+    CHECK(result.receiptFlags&HIGGS_TX_COMPENSATION_CONFIRMED);CHECK(!(result.receiptFlags&HIGGS_TX_NATIVE_GRIP_CONFIRMED));
+    auto lost=std::make_unique<Fixture>();lost->noReceipt=true;const auto original=lost->DomainItem();request=lost->Request(HIGGS_TRANSFER_INVENTORY_TO_HAND,original);
+    CHECK(!lost->tx.Request(lost->owner,request,id,lost->now));lost->Drain();CHECK(lost->executions==1);
+    lost->broker.SetInputContext(1,++lost->now);CHECK(lost->State(id).stage==HIGGS_TX_EXECUTING);
+    CHECK(!lost->tx.Cancel(lost->owner,id,request.epoch));CHECK(lost->State(id).stage==HIGGS_TX_RECOVERY_REQUIRED);
+    CHECK(lost->State(id).receiptFlags&HIGGS_TX_MUTATION_UNCERTAIN);
+    std::puts("PASS UI after inventory commit compensates; entered uncertain mutation retains recovery path");
+}
 int main()
 {
     InventoryGripAndIdempotency();
@@ -337,5 +354,6 @@ int main()
     HandToHand();
     CompensationAndUncertainty();
     EquipmentObservation();
+    MenuCompensation();
     Abi();
 }

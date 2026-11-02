@@ -361,6 +361,7 @@ struct Hand
 
     double selectedTwoHandTime = 0;
     uint64_t synergySecondaryEpisode = 0;
+    uint64_t synergyContactHoldEpisode = 0;
     bool wasSelectedTwoHandLerping = false;
 
     float handSize = 1.f;

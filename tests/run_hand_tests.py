@@ -85,7 +85,7 @@ def main():
         run('support-native-compile', [*flags,'/wd4100',f'/I{ROOT / "tests"}',*sources,out/'support_native_extracted.cpp',f'/Fe{support_native}'])
         run('support-native-run',[support_native])
         definition=out/'hand_probe.def'
-        definition.write_text('EXPORTS\n HIGGS_QueryHandInterface\n HIGGS_QueryHandRoutingInterface\n HIGGS_QueryHandOperationsInterface\n HIGGS_QueryTransactionsInterface\n HIGGS_QueryGrantMutationInterface\n HIGGS_QueryHandUseInterface\n HIGGS_QueryHapticsInterface\n HIGGS_QuerySupportInterface\n HIGGS_QueryInputInterface\n')
+        definition.write_text('EXPORTS\n HIGGS_QueryHandInterface\n HIGGS_QueryHandRoutingInterface\n HIGGS_QueryHandOperationsInterface\n HIGGS_QueryTransactionsInterface\n HIGGS_QueryGrantMutationInterface\n HIGGS_QueryHandUseInterface\n HIGGS_QueryHandUseTransitionInterface\n HIGGS_QueryHapticsInterface\n HIGGS_QuerySupportInterface\n HIGGS_QueryInputInterface\n')
         dll=out/'hand_probe.dll'
         run('dll-compile',[*flags,'/LD',*sources,f'/Fe{dll}','/link',f'/DEF:{definition}'])
         probe=out/'hand_dll_probe.exe'

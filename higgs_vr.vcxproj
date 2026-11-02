@@ -286,6 +286,9 @@
     <ClCompile Include="src\hand_transactions.cpp" />
     <ClCompile Include="src\transaction_runtime.cpp" />
     <ClCompile Include="src\inventory_service.cpp" />
+    <ClCompile Include="src\own_contact.cpp" />
+    <ClCompile Include="src\own_contact_runtime.cpp" />
+    <ClCompile Include="src\own_contact_native.cpp" />
     <ClCompile Include="src\synergy_inventory_native.cpp" />
     <ClInclude Include="include\hand_transactions.h" />
     <ClInclude Include="include\higgstransactions.h" />
@@ -302,6 +305,7 @@
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="src\hand_input_extended.cpp" />
+    <ClCompile Include="src\hand_input_context.cpp" />
     <ClCompile Include="src\input_runtime.cpp" />
     <ClCompile Include="src\hand_support.cpp" />
     <ClCompile Include="src\hand_parts.cpp" />
@@ -310,6 +314,8 @@
     <ClCompile Include="src\hand_support_native.cpp" />
     <ClInclude Include="include\higgsinput.h" />
     <ClInclude Include="include\hand_input_extended.h" />
+    <ClInclude Include="include\higgsinputcontext.h" />
+    <ClInclude Include="include\higgshandusetransition.h" />
     <ClInclude Include="include\higgssupport.h" />
     <ClInclude Include="include\hand_support.h" />
     <ClInclude Include="include\higgshandparts.h" />

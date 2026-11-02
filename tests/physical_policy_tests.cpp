@@ -112,6 +112,15 @@ void PassiveOwnership()
     CHECK(PhysicalPolicies().Update(f.owner, id, 1, r, f.now) == HIGGS_HAND_STALE);
     PhysicalPolicies().Drain(f.now);
     CHECK(f.State(id).appliedRevision == 2);
+    const auto generation=Service().HandGeneration(1);
+    Service().SetInputContext(1,f.now);
+    f.hands[0].unavailableReasons=HIGGS_HAND_REASON_MENU;Service().Publish(f.hands,++f.now);PhysicalPolicies().Drain(f.now);
+    CHECK(Service().HandGeneration(1)==generation&&f.State(id).stage==HIGGS_POLICY_ACTIVE);
+    r.massMultiplier=3;CHECK(PhysicalPolicies().Update(f.owner,id,2,r,f.now)==HIGGS_HAND_NOT_READY);
+    r.massMultiplier=2;r.durationMs=1500;CHECK(!PhysicalPolicies().Update(f.owner,id,2,r,f.now));
+    PhysicalPolicies().Drain(f.now);CHECK(f.State(id).appliedRevision==3);
+    Service().SetInputContext(0,f.now);
+    f.hands[0].unavailableReasons=0;Service().Publish(f.hands,++f.now);CHECK(Service().HandGeneration(1)==generation);
     f.cleanupReady = false;
     CHECK(!PhysicalPolicies().End(f.owner, id, r.epoch));
     PhysicalPolicies().Drain(f.now);

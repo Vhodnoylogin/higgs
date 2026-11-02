@@ -25,6 +25,7 @@
 #include "pluginapi.h"
 #include "synergy_runtime.h"
 #include "hand_broker.h"
+#include "own_contact.h"
 #include "hand_support.h"
 #include "hand_physical_policy.h"
 #include "main.h"
@@ -823,6 +824,7 @@ void Hand::RemoveWeaponCollision(bhkWorld *world)
 
 void Hand::RemoveWeaponCollisionFromCurrentWorld()
 {
+    HiggsHands::InvalidateNativeOwnContacts();
     if (weaponBody) {
         if (ahkpWorld *world = weaponBody->GetHavokWorld_1()) {
             if (NiPointer<bhkWorld> worldWrapper = world->m_userData) {
@@ -1315,6 +1317,7 @@ NiPointer<bhkRigidBody> Hand::GetRigidBodyToGrabBasedOnGeometry(const Hand &othe
 
 void Hand::TransitionHeld(Hand &other, bhkWorld &world, const NiPoint3 &palmPos, const NiPoint3 &palmDirection, const NiPoint3 &closestPoint, float havokWorldScale, const NiAVObject *handNode, float handSize, TESObjectREFR *selectedObj, const std::optional<NiTransform> &initialTransform, bool warpToHand, bool reuseTriangles, bool playSound)
 {
+    HiggsHands::InvalidateNativeOwnContacts();
     NiPointer<NiAVObject> collidableNode = GetNodeFromCollidable(selectedObject.collidable);
     NiPointer<NiNode> objRoot = selectedObj->GetNiNode();
     if (!collidableNode || !objRoot) {
@@ -1716,6 +1719,7 @@ void Hand::TransitionHeld(Hand &other, bhkWorld &world, const NiPoint3 &palmPos,
 
     HiggsPluginAPI::TriggerGrabbedCallbacks(isLeft, selectedObj);
 
+    if(synergyContactHoldEpisode!=UINT64_MAX)++synergyContactHoldEpisode;
     state = usePhysicsGrab ? State::HeldBody : State::HeldInit;
 
     if (state == State::HeldBody) {
@@ -4188,6 +4192,20 @@ void Hand::ControllerStateUpdate(uint32_t unControllerDeviceIndex, vr_src::VRCon
     const bool rawGrip = ((useTouchForGrip ? pControllerState->ulButtonTouched : pControllerState->ulButtonPressed) & gripMask) != 0;
     const bool brokerTrigger = HiggsHands::Input(physicalHand, HIGGS_INPUT_TRIGGER, rawTrigger);
     const bool brokerGrip = HiggsHands::Input(physicalHand, HIGGS_INPUT_GRIP, rawGrip);
+    const bool gameplayContext = HiggsHands::Service().GameplayContext();
+    const bool gameplayTrigger = HiggsHands::Service().GameplayInput(physicalHand, HIGGS_INPUT_TRIGGER);
+    const bool gameplayGrip = HiggsHands::Service().GameplayInput(physicalHand, HIGGS_INPUT_GRIP);
+    if (HiggsHands::Service().RebaseNativeInput(physicalHand) || !gameplayContext) {
+        // Retire legacy leeway/Force history, never replay a press across UI.
+        inputState = InputState::Idle;
+        grabRequested = false;
+        inputTrigger = inputGrip = gripPressWasBlockedWithGripTouch = false;
+        triggerDownBefore = gripDownBefore = false;
+        triggerDown = gripDown = false;
+    }
+    if (!gameplayContext) return;
+    if (!gameplayTrigger) triggerDownBefore = triggerDown = false;
+    if (!gameplayGrip) gripDownBefore = gripDown = false;
     const bool brokerGrant = HiggsHands::HasGrant(isLeft);
     if (brokerTrigger || brokerGrant) pControllerState->ulButtonPressed &= ~triggerMask;
     if (brokerGrip || brokerGrant) {
@@ -4195,10 +4213,10 @@ void Hand::ControllerStateUpdate(uint32_t unControllerDeviceIndex, vr_src::VRCon
         pControllerState->ulButtonTouched &= ~gripMask;
     }
     // Preserve native edge history during an owned use; its release is explicit.
-    triggerDown = brokerTrigger || brokerGrant ? triggerDownBefore : Config::options.enableTrigger && rawTrigger;
+    triggerDown = brokerTrigger || brokerGrant || !gameplayTrigger ? triggerDownBefore : Config::options.enableTrigger && rawTrigger;
 
     // Check if the grip is pressed or touched
-    if (brokerGrip || brokerGrant) {
+    if (brokerGrip || brokerGrant || !gameplayGrip) {
         gripDown = gripDownBefore;
     } else if (useTouchForGrip) {
         gripDown = Config::options.enableGrip && (pControllerState->ulButtonTouched & gripMask);

@@ -168,6 +168,12 @@ HIGGS_HandStatus SupportService::Update(uint64_t owner, uint64_t id, const HIGGS
     if (update.epoch != s.epoch || update.epoch != broker_.Epoch() || update.expectedRevision != s.requestRevision ||
         Ended(s.stage) || s.stage == HIGGS_SUPPORT_ENDING || !broker_.DomainAlive(owner, id, Now()))
         return HIGGS_HAND_STALE;
+    if (!broker_.GameplayContext()) {
+        for (unsigned i = 0; i < 3; ++i)
+            if (update.targetLocalPoint[i] != s.request.targetLocalPoint[i]) return HIGGS_HAND_NOT_READY;
+        for (unsigned i = 0; i < 9; ++i)
+            if (update.targetLocalRotation[i] != s.request.targetLocalRotation[i]) return HIGGS_HAND_NOT_READY;
+    }
     std::memcpy(s.request.targetLocalPoint, update.targetLocalPoint, sizeof(update.targetLocalPoint));
     std::memcpy(s.request.targetLocalRotation, update.targetLocalRotation, sizeof(update.targetLocalRotation));
     ++s.requestRevision;
