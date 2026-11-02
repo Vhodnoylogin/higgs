@@ -148,7 +148,7 @@ struct BSFlattenedBoneTree : NiNode
     BoneEntry * boneEntries; // 158
 };
 
-struct WorldSpaceMenu : IMenu
+struct HiggsWorldSpaceMenu : IMenu
 {
     virtual void SetHandle(UInt32 handle);
     virtual void Unk_0A();

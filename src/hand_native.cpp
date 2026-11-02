@@ -1,9 +1,17 @@
 #include "RE/offsets.h"
 #include "hand.h"
 #include "hand_broker.h"
+#include "hand_observations.h"
+#include "hand_parts_native.h"
+#include "hand_physical_policy.h"
+#include "hand_support.h"
+#include "hand_transactions.h"
+#include "haptic_schedule.h"
 #include "main.h"
 #include "menu_checker.h"
+#include "skse64/GameExtraData.h"
 #include "skse64/GameRTTI.h"
+#include "synergy_inventory_native.h"
 #include "synergy_runtime.h"
 #include <Physics/Collide/Query/CastUtil/hkpWorldRayCastInput.h>
 #include <algorithm>
@@ -25,12 +33,22 @@ struct NativeOperation
     NiPointer<NiAVObject> supportNode;
     NiTransform supportWorld{};
     NiPointer<bhkWorld> supportWorldOwner;
+    TESObjectWEAP *secondaryWeapon = nullptr;
+    double secondaryGrabbedAt = 0;
+    uint64_t secondaryEpisode = 0;
 };
 std::mutex nativeMutex;
 NativeOperation targets[2]{}, grips[2]{};
 uint64_t geometries[2]{};
 std::vector<uint64_t> immediateConfirm;
 uint64_t nextSupport = 1;
+struct NativeItem
+{
+    uint64_t serial = 0, identity = 0;
+    NiPointer<TESObjectREFR> reference;
+};
+std::vector<NativeItem> nativeItems;
+uint64_t nativeItemSerial = 1, nativeItemEpoch = 0;
 struct StaticSupportCollector : hkpRayHitCollector
 {
     uint32_t wanted = 0;
@@ -58,12 +76,12 @@ struct StaticSupportCollector : hkpRayHitCollector
         auto collidable = static_cast<const hkpCollidable *>(root);
         auto rigid = hkpGetRigidBody(collidable);
         // Cast the root and copy identity while the world read lock protects it.
-        if (!rigid || !rigid->m_userData || rigid->m_motion.m_type != hkpMotion::MotionType::MOTION_FIXED)
+        if (!rigid || !rigid->getUserData() || rigid->m_motion.m_type != hkpMotion::MotionType::MOTION_FIXED)
             return;
         auto ref = GetRefFromCollidable(collidable);
         if (!ref || ref->formID != wanted)
             return;
-        body = static_cast<bhkRigidBody *>(reinterpret_cast<void *>(rigid->m_userData));
+        body = static_cast<bhkRigidBody *>(reinterpret_cast<void *>(rigid->getUserData()));
         reference = ref;
         fraction = hit.m_hitFraction;
         normal = HkVectorToNiPoint(hit.m_normal);
@@ -85,6 +103,36 @@ NiTransform Transform(const HIGGS_HandOperation &request)
             result.rot.data[r][c] = request.rotation[r * 3 + c];
     result.scale = request.scale;
     return result;
+}
+bool GripMatches(Hand *hand, const NativeOperation &grip)
+{
+    if (!hand || Service().HandGeneration(hand->isLeft ? HIGGS_HAND_LEFT : HIGGS_HAND_RIGHT) !=
+                     grip.state.operation.handGeneration)
+        return false;
+    if (grip.secondaryWeapon)
+    {
+        if (!hand->IsTwoHanding() || hand->synergySecondaryEpisode != grip.secondaryEpisode ||
+            hand->twoHandedState.weapon != grip.secondaryWeapon || hand->grabbedTime != grip.secondaryGrabbedAt)
+            return false;
+    }
+    else
+    {
+        NiPointer<TESObjectREFR> reference;
+        if (!hand->HasHeldObject() || !LookupREFRByHandle(hand->selectedObject.handle, reference) || !reference ||
+            reference->formID != grip.state.operation.itemRefId)
+            return false;
+    }
+    const auto current = hand->GetGrabTransform(), wanted = Transform(grip.state.operation);
+    if (!std::isfinite(current.pos.x) || !std::isfinite(current.pos.y) || !std::isfinite(current.pos.z) ||
+        !std::isfinite(current.scale))
+        return false;
+    if (current.pos.x!=wanted.pos.x||current.pos.y!=wanted.pos.y||current.pos.z!=wanted.pos.z||current.scale!=wanted.scale)
+        return false;
+    for (size_t r = 0; r < 3; ++r)
+        for (size_t c = 0; c < 3; ++c)
+            if (!std::isfinite(current.rot.data[r][c]) || current.rot.data[r][c]!=wanted.rot.data[r][c])
+                return false;
+    return true;
 }
 bool DispatchOperation(uint64_t id, HIGGS_HandOperationState &state, void *)
 {
@@ -109,25 +157,40 @@ bool DispatchOperation(uint64_t id, HIGGS_HandOperationState &state, void *)
                 return false;
     if (p.kind == HIGGS_OP_HAPTIC)
     {
-        hand->haptics.QueueHapticEvent(p.hapticStrength, p.hapticStrength, p.durationMs / 1000.f);
+        HIGGS_HapticRequest request{};
+        request.structSize = sizeof(request);
+        request.physicalHand = p.physicalHand;
+        request.epoch = state.epoch;
+        request.durationMs = p.durationMs;
+        request.startStrength = request.endStrength = p.hapticStrength;
+        uint64_t scheduled = 0;
+        if (Haptics().Request(state.owner, request, scheduled, Now(), id))
+            return false;
         immediateConfirm.push_back(id);
         return true;
     }
     if (p.kind == HIGGS_OP_GRIP_TRANSFORM)
     {
-        if (!hand->HasHeldObject())
+        const bool secondary = hand->IsTwoHanding();
+        if ((!hand->HasHeldObject() && !secondary) ||
+            (secondary && (!p.grant || !hand->twoHandedState.weapon ||
+                           hand->twoHandedState.weapon->formID != p.itemRefId || !hand->synergySecondaryEpisode ||
+                           hand->synergySecondaryEpisode != Service().SecondaryEpisode(p.physicalHand))))
             return false;
         std::lock_guard lock(nativeMutex);
         if (grips[i].id)
         {
             if (Service().OperationActive(grips[i].id, Now()))
                 return false;
-            if (Service().HandGeneration(p.physicalHand) == grips[i].state.operation.handGeneration)
+            if (GripMatches(hand, grips[i]))
                 hand->SetGrabTransform(grips[i].originalGrip);
             grips[i] = {};
         }
         grips[i].id = id;
         grips[i].state = state;
+        grips[i].secondaryWeapon = secondary ? hand->twoHandedState.weapon : nullptr;
+        grips[i].secondaryGrabbedAt = hand->grabbedTime;
+        grips[i].secondaryEpisode = hand->synergySecondaryEpisode;
         grips[i].originalGrip = hand->GetGrabTransform();
         hand->SetGrabTransform(Transform(p));
         return true;
@@ -284,17 +347,12 @@ void ValidateOperations()
                     targets[i] = {};
             }
         }
+        if (grip.id && Service().OperationActive(grip.id, Now()) && !GripMatches(hand, grip))
+            Service().BreakOperation(grip.id, HIGGS_HAND_STALE);
         if (grip.id && !Service().OperationActive(grip.id, Now()))
         {
-            if (hand && hand->HasHeldObject() &&
-                Service().HandGeneration(hand->isLeft ? HIGGS_HAND_LEFT : HIGGS_HAND_RIGHT) ==
-                    grip.state.operation.handGeneration)
-            {
-                NiPointer<TESObjectREFR> ref;
-                if (LookupREFRByHandle(hand->selectedObject.handle, ref) && ref &&
-                    ref->formID == grip.state.operation.itemRefId)
-                    hand->SetGrabTransform(grip.originalGrip);
-            }
+            if (GripMatches(hand, grip))
+                hand->SetGrabTransform(grip.originalGrip);
             std::lock_guard lock(nativeMutex);
             if (grips[i].id == grip.id)
                 grips[i] = {};
@@ -337,6 +395,7 @@ bool DispatchPhysical(const HIGGS_PhysicalRequest &request, void *)
     }
     if (request.kind == HIGGS_PHYSICAL_RELEASE && (hand->HasHeldObject() || hand->IsTwoHanding()))
     {
+        PrepareSupportRelease(hand->isLeft);
         savedConsume[i] = hand->disableConsumeStash;
         restoreConsume[i] = true;
         hand->disableConsumeStash = true;
@@ -348,8 +407,21 @@ bool DispatchPhysical(const HIGGS_PhysicalRequest &request, void *)
 } // namespace
 void DrainNative()
 {
+    Service().MarkMainThread();
     auto phase = Service().NativePhase();
+    if (g_leftHand)
+        Service().ObserveSecondaryEpisode(HIGGS_HAND_LEFT,
+                                          g_leftHand->IsTwoHanding() ? g_leftHand->synergySecondaryEpisode : 0);
+    if (g_rightHand)
+        Service().ObserveSecondaryEpisode(HIGGS_HAND_RIGHT,
+                                          g_rightHand->IsTwoHanding() ? g_rightHand->synergySecondaryEpisode : 0);
+    MaintainNativeHandParts();
+    MaintainNativePhysicalPolicies();
     ValidateOperations();
+    Service().DrainHandUses();
+    DrainNativeSupport();
+    DrainNativeInventory();
+    Transactions().Drain(Now());
     Service().DrainPhysical(DispatchPhysical, nullptr, Now());
     Service().DrainOperations(DispatchOperation, nullptr, Now());
     for (auto id : immediateConfirm)
@@ -375,6 +447,8 @@ void FinishNative()
 }
 bool CopyNativeTarget(bool left, float position[3], float rotation[9], float &scale)
 {
+    if (CopySupportTarget(left, position, rotation, scale))
+        return true;
     std::lock_guard lock(nativeMutex);
     const auto &target = targets[left ? 0 : 1];
     if (!target.id || !Service().OperationActive(target.id, Now()))
@@ -388,11 +462,15 @@ bool CopyNativeTarget(bool left, float position[3], float rotation[9], float &sc
 }
 bool HasNativeTarget(bool left)
 {
+    HIGGS_SupportState support{};
+    if (Supports().Goal(left ? HIGGS_HAND_LEFT : HIGGS_HAND_RIGHT, support, Now()))
+        return true;
     std::lock_guard lock(nativeMutex);
     return targets[left ? 0 : 1].id && Service().OperationActive(targets[left ? 0 : 1].id, Now());
 }
 void ConfirmNativeTarget(bool left)
 {
+    ConfirmSupportTarget(left);
     std::lock_guard lock(nativeMutex);
     if (targets[left ? 0 : 1].id && Service().OperationActive(targets[left ? 0 : 1].id, Now()))
         Service().ConfirmOperation(targets[left ? 0 : 1].id, Now());
@@ -422,11 +500,18 @@ void ConfirmNativeGrip(bool left)
 {
     std::lock_guard lock(nativeMutex);
     const auto id = grips[left ? 0 : 1].id;
-    if (id && Service().OperationActive(id, Now()))
+    if (id && Service().OperationActive(id, Now()) && GripMatches(left ? g_leftHand : g_rightHand, grips[left ? 0 : 1]))
         Service().ConfirmOperation(id, Now());
 }
 void PublishNative()
 {
+    auto publicationPhase = Service().NativePhase();
+    if (g_leftHand)
+        Service().ObserveSecondaryEpisode(HIGGS_HAND_LEFT,
+                                          g_leftHand->IsTwoHanding() ? g_leftHand->synergySecondaryEpisode : 0);
+    if (g_rightHand)
+        Service().ObserveSecondaryEpisode(HIGGS_HAND_RIGHT,
+                                          g_rightHand->IsTwoHanding() ? g_rightHand->synergySecondaryEpisode : 0);
     PlayerCharacter *player = *g_thePlayer;
     if (!player || !player->GetNiNode())
     {
@@ -512,6 +597,76 @@ void PublishNative()
         if (!hand->IsInGrabbableState() && !hand->HasHeldObject() && !hand->IsTwoHanding() && !hand->synergyGrabPending)
             h.unavailableReasons |= HIGGS_HAND_REASON_EXISTING_USE;
     }
+    PublishNativeItems();
     Service().Publish(records, Now());
+    ObserveNativeSamples();
+}
+void PublishNativeItems()
+{
+    if (nativeItemEpoch != Service().Epoch())
+    {
+        nativeItems.clear();
+        nativeItemEpoch = Service().Epoch();
+    }
+    uint64_t current[2]{};
+    Hand *hands[2]{g_leftHand, g_rightHand};
+    for (size_t i = 0; i < 2; ++i)
+    {
+        auto hand = hands[i];
+        NiPointer<TESObjectREFR> ref;
+        if (hand && hand->HasHeldObject() && LookupREFRByHandle(hand->selectedObject.handle, ref) && ref)
+        {
+            NativeItem *entry = nullptr;
+            for (auto &item : nativeItems)
+                if (item.reference == ref)
+                {
+                    entry = &item;
+                    break;
+                }
+            if (!entry)
+            {
+                NativeItem item{};
+                item.serial = nativeItemSerial++;
+                item.reference = ref;
+                nativeItems.push_back(item);
+                entry = &nativeItems.back();
+            }
+            const auto count = BSExtraList_GetCount(&ref->extraData);
+            entry->identity =
+                Transactions().ObserveHeld(i == 0 ? HIGGS_HAND_LEFT : HIGGS_HAND_RIGHT, entry->serial, ref->formID,
+                                           ref->baseForm ? ref->baseForm->formID : 0, count, Now());
+            current[i] = entry->identity;
+        }
+        else
+            Transactions().ObserveHeld(i == 0 ? HIGGS_HAND_LEFT : HIGGS_HAND_RIGHT, 0, 0, 0, 0, Now());
+    }
+    nativeItems.erase(std::remove_if(nativeItems.begin(), nativeItems.end(),
+                                     [&](const NativeItem &item) {
+                                         return item.identity != current[0] && item.identity != current[1] &&
+                                                !Transactions().ItemInUse(item.identity) &&
+                                                Transactions().RetireNativeItem(item.identity);
+                                     }),
+                      nativeItems.end());
+}
+bool CopyNativeItemReference(const HIGGS_ItemIdentity &identity, NiPointer<TESObjectREFR> &out)
+{
+    // Native inventory executor calls only from HIGGS main maintenance. The
+    // retained object, rather than worldRefId lookup, protects release->inventory.
+    auto phase = Service().NativePhase();
+    if (identity.structSize < sizeof(identity) || identity.kind != HIGGS_ITEM_WORLD_REFERENCE ||
+        !(identity.validFields & HIGGS_ITEM_NATIVE_OBSERVED) || identity.epoch != nativeItemEpoch ||
+        identity.epoch != Service().Epoch() || !Transactions().IdentityCurrent(identity))
+        return false;
+    for (const auto &item : nativeItems)
+        if (item.identity == identity.instance && item.reference)
+        {
+            auto ref = item.reference;
+            if (ref->formID != identity.worldRefId || !ref->baseForm || ref->baseForm->formID != identity.baseFormId ||
+                BSExtraList_GetCount(&ref->extraData) != identity.quantity)
+                return false;
+            out = ref;
+            return true;
+        }
+    return false;
 }
 } // namespace HiggsHands

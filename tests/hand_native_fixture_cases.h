@@ -177,6 +177,9 @@ int main()
     DrainNative();
     CHECK(fixtureLeft.geometry.x == 0.05f);
     TESObjectREFR held;
+    TESForm heldBase;
+    heldBase.formID = 900;
+    held.baseForm = &heldBase;
     NiNode heldNode;
     held.formID = 42;
     held.node = &heldNode;
@@ -186,6 +189,16 @@ int main()
     PublishNative();
     s = FixtureSnapshot(owner);
     op.kind = HIGGS_OP_GRIP_TRANSFORM;
+    HIGGS_ItemIdentity heldIdentity{};
+    CHECK(!Transactions().Held(owner,HIGGS_HAND_LEFT,heldIdentity));
+    NiPointer<TESObjectREFR> retained;
+    CHECK(CopyNativeItemReference(heldIdentity,retained)&&retained==&held);
+    auto staleIdentity=heldIdentity;++staleIdentity.generation;
+    CHECK(!CopyNativeItemReference(staleIdentity,retained));
+    TESObjectREFR recycled;recycled.formID=42;recycled.baseForm=&heldBase;
+    forms[42]=&recycled;
+    CHECK(CopyNativeItemReference(heldIdentity,retained)&&retained==&held);
+    forms[42]=&held;
     op.itemRefId = 42;
     op.handGeneration = s.hands[0].generation;
     op.scale = 1;
@@ -213,6 +226,38 @@ int main()
     CHECK(!Service().EndOperation(owner, id, op.epoch));
     DrainNative();
     CHECK(fixtureLeft.GetGrabTransform().pos.x == 0);
+    // Exercise the actual nativeItems erase predicate, not an ID-counter model.
+    // Reused engine form IDs and duplicated item UIDs are distinct native refs.
+    fixtureLeft.holding=false;
+    PublishNative();
+    uint64_t previousInstance=0;
+    for(int i=0;i<300;++i){
+        auto reference=new TESObjectREFR;
+        reference->formID=42;reference->baseForm=&heldBase;reference->extraData.testUniqueId=17;
+        forms[42]=reference;fixtureLeft.holding=true;fixtureLeft.selectedObject.handle=42;
+        PublishNative();
+        HIGGS_ItemIdentity currentIdentity{};
+        CHECK(!Transactions().Held(owner,HIGGS_HAND_LEFT,currentIdentity));
+        CHECK(currentIdentity.instance&&currentIdentity.instance!=previousInstance);
+        CHECK(nativeItems.size()==1);
+        CHECK(!Transactions().RetireNativeItem(currentIdentity.instance));
+        previousInstance=currentIdentity.instance;
+        fixtureLeft.holding=false;PublishNative();
+        CHECK(nativeItems.empty());
+        CHECK(!Transactions().IdentityCurrent(currentIdentity));
+        forms.erase(42);delete reference;
+    }
+    // A released hand is not permission to retire an in-flight transaction pin.
+    forms[42]=&held;fixtureLeft.holding=true;fixtureLeft.selectedObject.handle=42;PublishNative();
+    HIGGS_ItemIdentity pinned{};CHECK(!Transactions().Held(owner,HIGGS_HAND_LEFT,pinned));
+    uint64_t transferExecutor=0;
+    CHECK(!Service().TransferExecutor(owner,[](const HIGGS_TransferExecution*,void*){},nullptr,transferExecutor));
+    HIGGS_TransferRequest transfer{};transfer.structSize=sizeof(transfer);transfer.kind=HIGGS_TRANSFER_HAND_TO_INVENTORY;transfer.sourceHand=HIGGS_HAND_LEFT;transfer.epoch=Service().Epoch();transfer.idempotencyKey=9001;transfer.original=pinned;transfer.executor=transferExecutor;transfer.quantity=pinned.quantity;transfer.timeoutMs=5000;
+    uint64_t transferId=0;CHECK(!Transactions().Request(owner,transfer,transferId,Now()));
+    fixtureLeft.holding=false;PublishNative();CHECK(nativeItems.size()==1);CHECK(!Transactions().RetireNativeItem(pinned.instance));
+    CHECK(CopyNativeItemReference(pinned,retained)&&retained==&held);
+    CHECK(!Transactions().Cancel(owner,transferId,Service().Epoch()));PublishNative();CHECK(nativeItems.empty());CHECK(!Transactions().IdentityCurrent(pinned));
+    SecondaryGripFixture(owner);
     std::puts("PASS actual native-source input masking, drawn/unknown equipment, static anchor validation, keyframe "
               "target, geometry restore and grip replacement/receipt seams (not engine/game qualification)");
 }

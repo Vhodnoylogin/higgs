@@ -3,6 +3,12 @@
 // not qualify game hooks, engine concurrency, collision response or hardware.
 #pragma once
 #include "hand_broker.h"
+#include "hand_observations.h"
+#include "hand_support.h"
+#include "hand_transactions.h"
+#include "hand_physical_policy.h"
+#include "synergy_inventory_native.h"
+#include "haptic_schedule.h"
 #include "higgssynergy.h"
 #include <algorithm>
 #include <cmath>
@@ -12,6 +18,14 @@
 #include <map>
 #include <mutex>
 using UInt32 = uint32_t;
+namespace HiggsHands {inline void DrainNativeInventory() { /* Separate inventory fixture executes its real adapter. */ }}
+struct hkpRigidBody;
+namespace HiggsHands {
+// Articulated-part application/contact behavior has its own actual-source fixture.
+inline void MaintainNativeHandParts() {}
+inline void MaintainNativePhysicalPolicies() {}
+inline void RecordNativeHandPartContact(const hkpRigidBody*,uint64_t,uint64_t) {}
+}
 #define CHECK(x)                                                                                                       \
     do                                                                                                                 \
     {                                                                                                                  \
@@ -26,6 +40,10 @@ struct NiPoint3
     float x = 0, y = 0, z = 0;
     NiPoint3() = default;
     NiPoint3(float a, float b, float c) : x(a), y(b), z(c) {};
+    float operator()(int i) const
+    {
+        return i == 0 ? x : (i == 1 ? y : z);
+    }
     NiPoint3 operator+(NiPoint3 b) const
     {
         return {x + b.x, y + b.y, z + b.z};
@@ -59,6 +77,28 @@ NiPoint3 VectorNormalized(NiPoint3 v)
 struct NiMatrix33
 {
     float data[3][3]{{1, 0, 0}, {0, 1, 0}, {0, 0, 1}};
+    NiPoint3 getColumn(int j) const
+    {
+        return {data[0][j], data[1][j], data[2][j]};
+    };
+    NiPoint3 operator*(NiPoint3 p) const
+    {
+        return {data[0][0] * p.x + data[0][1] * p.y + data[0][2] * p.z,
+                data[1][0] * p.x + data[1][1] * p.y + data[1][2] * p.z,
+                data[2][0] * p.x + data[2][1] * p.y + data[2][2] * p.z};
+    }
+    NiMatrix33 operator*(const NiMatrix33 &other) const
+    {
+        NiMatrix33 result{};
+        for (size_t r = 0; r < 3; ++r)
+            for (size_t c = 0; c < 3; ++c)
+            {
+                result.data[r][c] = 0;
+                for (size_t k = 0; k < 3; ++k)
+                    result.data[r][c] += data[r][k] * other.data[k][c];
+            }
+        return result;
+    }
 };
 struct NiTransform
 {
@@ -80,6 +120,10 @@ template <class T> struct NiPointer
     NiPointer(T *v) : p(v)
     {
     }
+    T *val() const
+    {
+        return p;
+    }
     T *operator->() const
     {
         return p;
@@ -94,8 +138,13 @@ template <class T> struct NiPointer
         return *this;
     }
 };
-struct NiAVObject
+namespace RE
 {
+template <class T> using hkRefPtr = NiPointer<T>;
+}
+class NiAVObject
+{
+  public:
     NiTransform m_worldTransform;
     virtual ~NiAVObject() = default;
 };
@@ -108,6 +157,10 @@ struct hkTransform
 {
     hkVector4 m_translation;
     hkRotation m_rotation;
+    const hkRotation &getRotation() const
+    {
+        return m_rotation;
+    }
     const hkVector4 &getTranslation() const
     {
         return m_translation;
@@ -151,6 +204,10 @@ struct hkpCollidable : hkpCdBody
 {
     hkpShape *m_shape = nullptr;
     hkpRigidBody *owner = nullptr;
+    const hkpShape *getShape() const
+    {
+        return m_shape;
+    }
 };
 struct hkpWorld
 {
@@ -158,10 +215,35 @@ struct hkpWorld
 struct hkpRigidBody
 {
     hkpMotion m_motion;
+    uint64_t m_uid = 1;
     uintptr_t m_userData = 0;
+    uintptr_t getUserData() const
+    {
+        return m_userData;
+    }
     hkpCollidable collider;
     hkTransform transform;
     hkpWorld *world = nullptr;
+    hkpWorld *getWorld() const
+    {
+        return world;
+    }
+    hkVector4 getPosition() const
+    {
+        return transform.m_translation;
+    }
+    hkVector4 getLinearVelocity() const
+    {
+        return {};
+    }
+    hkVector4 getAngularVelocity() const
+    {
+        return {};
+    }
+    const hkpCollidable *getCollidable() const
+    {
+        return &collider;
+    }
     hkpCollidable *getCollidable()
     {
         return &collider;
@@ -185,7 +267,7 @@ struct bhkRigidBody
 };
 struct bhkWorld
 {
-    hkpWorld *world = nullptr;
+    NiPointer<hkpWorld> world;
     std::recursive_mutex worldLock;
 };
 int readLocks = 0;
@@ -206,11 +288,22 @@ struct BSReadLocker
 using BSWriteLocker = BSReadLocker;
 struct TESForm
 {
-    uint32_t formID = 0;
+    uint32_t formID = 0, formType = 0;
     virtual ~TESForm() = default;
 };
+struct BaseExtraList
+{
+    uint32_t count = 1;
+    uint16_t testUniqueId = 0; // Opaque item metadata; native hold identity must not use it.
+};
+uint32_t BSExtraList_GetCount(BaseExtraList *data)
+{
+    return data->count;
+}
 struct TESObjectREFR : TESForm
 {
+    TESForm *baseForm = nullptr;
+    BaseExtraList extraData;
     NiNode *node = nullptr;
     NiNode *GetNiNode()
     {
@@ -228,6 +321,9 @@ struct TESObjectWEAP : TESForm
         uint32_t type = 1;
     } gameData;
     bool bow = false, twoHanded = false;
+};
+struct Actor : TESObjectREFR
+{
 };
 struct TESAmmo : TESForm
 {
@@ -257,6 +353,8 @@ bool leftHanded = false;
 bool *g_leftHandedMode = &leftHanded;
 float scaleValue = 0.014f;
 float *g_havokWorldScale = &scaleValue;
+float inverseScaleValue = 1.f / scaleValue;
+float *g_inverseHavokWorldScale = &inverseScaleValue;
 float deltaValue = 0.01f;
 float *g_deltaTime = &deltaValue;
 double g_currentFrameTime = 1;
@@ -441,12 +539,17 @@ struct Hand
     struct Selected
     {
         uint32_t handle = 0;
+        NiPointer<bhkRigidBody> rigidBody;
     } selectedObject;
     FakeHaptics haptics;
     NiAVObject *node = nullptr;
     NiTransform grabTransform, m_handTransformWithoutVrikOffset;
+        struct {TESObjectWEAP* weapon=nullptr;} twoHandedState;
+        double grabbedTime=0;
+        uint64_t synergySecondaryEpisode=0;
     bhkRigidBody *backing = nullptr;
     NiPoint3 geometry;
+    NiPoint3 palmPosHandspace;
     int rebuilds = 0;
     bool HasHeldObject() const
     {
@@ -542,3 +645,42 @@ void ApplyHardKeyframeVelocityClamped(hkVector4 p, hkQuaternion, float, NiPointe
     b->hkBody->transform.m_translation = p;
     ++keyframes;
 }
+
+struct FixtureContactPoint
+{
+    hkVector4 position, normal{0, 0, 1};
+    hkVector4 getPosition() const
+    {
+        return position;
+    }
+    hkVector4 getNormal() const
+    {
+        return normal;
+    }
+};
+struct FixtureContactProperties
+{
+    uint8_t m_flags = 0;
+    bool wasUsed() const
+    {
+        return true;
+    }
+    bool isPotential() const
+    {
+        return false;
+    }
+};
+struct hkContactPointMaterial
+{
+    enum FlagEnum
+    {
+        CONTACT_IS_DISABLED = 1
+    };
+};
+class hkpContactPointEvent
+{
+  public:
+    FixtureContactPoint *m_contactPoint = nullptr;
+    FixtureContactProperties *m_contactPointProperties = nullptr;
+    hkpRigidBody *m_bodies[2]{};
+};

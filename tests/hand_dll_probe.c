@@ -1,6 +1,12 @@
+#include "higgsgrantmutation.h"
 #include "higgshandapi.h"
 #include "higgshandoperations.h"
 #include "higgshandrouting.h"
+#include "higgshanduse.h"
+#include "higgshaptics.h"
+#include "higgsinput.h"
+#include "higgssupport.h"
+#include "higgstransactions.h"
 #include <stdio.h>
 #ifdef _WIN32
 #include <windows.h>
@@ -29,6 +35,21 @@ int main(int argc, char **argv)
         return 4;
     if (!api.ReportResult || !routing.AuthorizeRecognizer)
         return 5;
+#define CHECK_TABLE(Name, Type, Fn)                                                                                    \
+    do                                                                                                                 \
+    {                                                                                                                  \
+        Type table = {0};                                                                                              \
+        Fn get = (Fn)(void *)GetProcAddress(module, Name);                                                             \
+        if (!get || get(1, sizeof(table), &table) || table.structSize != sizeof(table) || table.abiVersion != 1)       \
+            return 6;                                                                                                  \
+    } while (0)
+    CHECK_TABLE("HIGGS_QueryTransactionsInterface", HIGGS_TransactionsInterface, HIGGS_QueryTransactionsInterfaceFn);
+    CHECK_TABLE("HIGGS_QueryGrantMutationInterface", HIGGS_GrantMutationInterface, HIGGS_QueryGrantMutationInterfaceFn);
+    CHECK_TABLE("HIGGS_QueryHandUseInterface", HIGGS_HandUseInterface, HIGGS_QueryHandUseInterfaceFn);
+    CHECK_TABLE("HIGGS_QueryHapticsInterface", HIGGS_HapticsInterface, HIGGS_QueryHapticsInterfaceFn);
+    CHECK_TABLE("HIGGS_QuerySupportInterface", HIGGS_SupportInterface, HIGGS_QuerySupportInterfaceFn);
+    CHECK_TABLE("HIGGS_QueryInputInterface", HIGGS_InputInterface, HIGGS_QueryInputInterfaceFn);
+#undef CHECK_TABLE
     FreeLibrary(module);
     puts("PASS isolated dynamic C hand/routing DLL discovery (not native plugin)");
     return 0;

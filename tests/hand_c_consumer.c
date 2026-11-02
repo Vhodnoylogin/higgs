@@ -1,6 +1,11 @@
+#include "higgsgrantmutation.h"
 #include "higgshandapi.h"
 #include "higgshandoperations.h"
 #include "higgshandrouting.h"
+#include "higgshanduse.h"
+#include "higgshaptics.h"
+#include "higgssupport.h"
+#include "higgstransactions.h"
 #include <stddef.h>
 _Static_assert(sizeof(HIGGS_HandRecord) == 120, "hand record x64 ABI");
 _Static_assert(sizeof(HIGGS_HandSnapshot) == 280, "hand snapshot x64 ABI");
@@ -11,6 +16,16 @@ _Static_assert(sizeof(HIGGS_HandOperationsInterface) == 40, "operations table x6
 _Static_assert(sizeof(HIGGS_HandOperation) == 136, "operation request x64 ABI");
 _Static_assert(sizeof(HIGGS_HandOperationState) == 224, "operation state x64 ABI");
 _Static_assert(sizeof(HIGGS_HandInput) == 336, "input observation x64 ABI");
+_Static_assert(sizeof(HIGGS_TransactionsInterface) == 80, "transaction table ABI");
+_Static_assert(sizeof(HIGGS_ItemIdentity) == 72, "item identity ABI");
+_Static_assert(sizeof(HIGGS_TransferRequest) == 160, "transfer request ABI");
+_Static_assert(sizeof(HIGGS_TransferState) == 312, "transfer state ABI");
+_Static_assert(sizeof(HIGGS_TransferReceipt) == 288, "transfer receipt ABI");
+_Static_assert(sizeof(HIGGS_GrantMutationInterface) == 16, "mutation table ABI");
+_Static_assert(sizeof(HIGGS_SupportInterface) == 48, "support table ABI");
+_Static_assert(sizeof(HIGGS_SupportRequest) == 168, "support request ABI");
+_Static_assert(sizeof(HIGGS_SupportState) == 336, "support state ABI");
+_Static_assert(sizeof(HIGGS_SupportUpdate) == 72, "support update ABI");
 int hand_c_consumer(void)
 {
     HIGGS_HandInterface api = {0};

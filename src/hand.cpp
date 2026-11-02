@@ -25,6 +25,8 @@
 #include "pluginapi.h"
 #include "synergy_runtime.h"
 #include "hand_broker.h"
+#include "hand_support.h"
+#include "hand_physical_policy.h"
 #include "main.h"
 #include "constraint.h"
 
@@ -1157,7 +1159,7 @@ std::optional<NiTransform> Hand::GetInitialObjectTransformBasedOnGrabNodes(const
 
 bool Hand::ShouldUsePhysicsBasedGrab(TESObjectREFR *refr, bhkRigidBody *rigidBody)
 {
-    if (Config::options.forcePhysicsGrab) return true;
+    if (HiggsHands::PhysicsGrabPreference(isLeft,Config::options.forcePhysicsGrab)) return true;
 
     if (NiPointer<NiAVObject> node = GetNodeFromCollidable(rigidBody->hkBody->getCollidable())) {
         if (NiPointer<NiNode> root = refr->GetNiNode()) {
@@ -1892,6 +1894,7 @@ void Hand::TransitionHeldTwoHanded(Hand &other, bhkWorld &world, const NiPoint3 
 
     HiggsPluginAPI::TriggerStartTwoHandingCallbacks();
 
+    ++synergySecondaryEpisode;
     state = State::HeldTwoHanded;
 }
 
@@ -2972,6 +2975,8 @@ void Hand::Update(Hand &other, bhkWorld *world)
 
         if (idleDesired) {
             idleDesired = false;
+            HiggsHands::PrepareSupportRelease(isLeft);
+            HiggsHands::PreparePhysicalPolicyRelease(isLeft);
 
             if (other.HasHeldObject() && selectedObject.rigidBody == other.selectedObject.rigidBody && !other.disableDropEvents) {
                 // Don't trigger drop events if the other hand is still holding the same object
@@ -3717,6 +3722,7 @@ void Hand::Update(Hand &other, bhkWorld *world)
             // desiredTransform is where we want the weapon to be after vrik is done applying its transform, so we must apply an inverted vrik-applied transform here so that it evens out at the end.
             NiTransform vrikCorrectedTransform = desiredTransform * InverseTransform(twoHandedState.otherFpWeaponToTpWeaponTransform);
             NiMathDouble::UpdateTransform(fpWeaponNode, vrikCorrectedTransform);
+            HiggsHands::ConfirmNativeGrip(isLeft);
 
             // This makes the weapon collision (for melee hit detection as well as the higgs collision) move with our transform
             NiPointer<NiAVObject> collisionOffsetNode = other.GetWeaponCollisionOffsetNode(twoHandedState.weapon);

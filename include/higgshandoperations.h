@@ -12,6 +12,13 @@ extern "C"
 #define HIGGS_HAND_OP_CAP_DRIVE_CAP UINT64_C(8)
 #define HIGGS_HAND_OP_CAP_HAPTIC UINT64_C(16)
 #define HIGGS_HAND_OP_CAP_HAND_GEOMETRY UINT64_C(32)
+#define HIGGS_HAND_OP_CAP_SECONDARY_GRIP_TRANSFORM UINT64_C(64)
+    /* With capability64, GRIP_TRANSFORM also accepts an active game-weapon
+       secondary support: itemRefId is its weapon base form, grant is mandatory,
+       and handGeneration must match that exact secondary support observation.
+       The per-Hand desired transform is independent of the main-hand grip.
+       Confirmation follows native actuation; restoration requires the same
+       support start/weapon/generation and the still-matching last written value. */
     enum
     {
         HIGGS_OP_WORLD_SUPPORT = 1,

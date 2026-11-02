@@ -8,6 +8,7 @@ import argparse
 import hashlib
 import json
 import os
+import re
 from pathlib import Path
 import shutil
 import subprocess
@@ -71,7 +72,7 @@ def audit_integration():
                  "HiggsSynergy::MayStartHandInteraction", "!CanTwoHand(true)"]:
         if call not in hand:
             raise RuntimeError(f"Native admission/continuation/filter integration missing: {call}")
-    # Native integration is unbuilt without the author's SDK/Havok dependencies.
+    # This portable suite does not substitute for the separately recorded native build.
     # This scoped structural guard catches admission omitted from an async spawn
     # branch; it does not claim execution of Skyrim's hand state machine.
     for state, clock in [("GrabExternal", "grabbedTime"), ("PreGrabItem", "grabbedTime"),
@@ -184,7 +185,8 @@ def main():
         run_motion_checks(output)
         return 0
     include = ROOT / "include"
-    sources = [ROOT / "src/synergy_core.cpp", ROOT / "src/synergy_runtime.cpp", ROOT / "src/hand_broker.cpp", ROOT / "src/hand_runtime.cpp", ROOT / "tests/synergy_tests.cpp"]
+    service_sources=[ROOT/p for p in re.findall(r'"\$\{HIGGS_SERVICE_ROOT\}/(src/[^"\n]+\.cpp)"',(ROOT/'cmake/HiggsServices.cmake').read_text())]
+    sources = [ROOT / "src/synergy_core.cpp", ROOT / "src/synergy_runtime.cpp", *service_sources, ROOT / "tests/synergy_tests.cpp"]
     if os.name == "nt":
         env = msvc_environment()
         compiler = shutil.which("cl", path=env.get("PATH"))

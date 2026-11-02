@@ -201,6 +201,23 @@ HIGGS_HandStatus HIGGS_HAND_CALL CopyOperation(uint64_t owner, uint64_t request,
         return status;
     });
 }
+HIGGS_HandStatus HIGGS_HAND_CALL Authorized(uint64_t owner, const HIGGS_GrantedMutationRequest *r,
+                                            HIGGS_GrantedMutationCallback callback, void *context,
+                                            HIGGS_ActionResult *out)
+{
+    if (!r || r->structSize < sizeof(*r))
+        return HIGGS_HAND_INVALID_ARGUMENT;
+    auto status = Output(out);
+    if (status)
+        return status;
+    return Guard([&] {
+        HIGGS_ActionResult value{};
+        auto result = Service().WithAuthorizedAction(owner, *r, callback, context, value);
+        if (!result)
+            std::memcpy(out, &value, sizeof(value));
+        return result;
+    });
+}
 } // namespace
 extern "C" HIGGS_HandStatus HIGGS_HAND_CALL HIGGS_QueryHandRoutingInterface(uint32_t version, uint32_t bytes,
                                                                             HIGGS_HandRoutingInterface *out)
@@ -230,10 +247,23 @@ extern "C" HIGGS_HandStatus HIGGS_HAND_CALL HIGGS_QueryHandOperationsInterface(u
                                               HIGGS_HAND_OP_CAP_STATIC_WORLD_SUPPORT |
                                                   HIGGS_HAND_OP_CAP_PHYSICAL_HAND_TARGET |
                                                   HIGGS_HAND_OP_CAP_GRIP_TRANSFORM | HIGGS_HAND_OP_CAP_DRIVE_CAP |
-                                                  HIGGS_HAND_OP_CAP_HAPTIC | HIGGS_HAND_OP_CAP_HAND_GEOMETRY,
+                                                  HIGGS_HAND_OP_CAP_HAPTIC | HIGGS_HAND_OP_CAP_HAND_GEOMETRY | HIGGS_HAND_OP_CAP_SECONDARY_GRIP_TRANSFORM,
                                               Operation,
                                               EndOperation,
                                               CopyOperation};
+    std::memcpy(out, &table, sizeof(table));
+    return HIGGS_HAND_OK;
+}
+extern "C" HIGGS_HandStatus HIGGS_HAND_CALL HIGGS_QueryGrantMutationInterface(uint32_t version, uint32_t bytes,
+                                                                              HIGGS_GrantMutationInterface *out)
+{
+    if (version != 1)
+        return HIGGS_HAND_UNSUPPORTED_VERSION;
+    if (!out)
+        return HIGGS_HAND_INVALID_ARGUMENT;
+    if (bytes < sizeof(*out))
+        return HIGGS_HAND_BUFFER_TOO_SMALL;
+    const HIGGS_GrantMutationInterface table{sizeof(table), 1, Authorized};
     std::memcpy(out, &table, sizeof(table));
     return HIGGS_HAND_OK;
 }

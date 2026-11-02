@@ -12,7 +12,7 @@ The only maintained source of the full concept and illustrative pseudo-ABI is [t
 
 ## Required architectural changes in HIGGS
 
-1. **Broker grip/trigger before actions execute.** Publish observations with physical hand and sequence ID. Body Slots and other recognizers propose actions before defaults act. Resolve one consuming action using visible user priorities. The current implementation provides explicit INI priority overrides and a declared registration-order fallback; delayed hold/multi-tap reservations remain work.
+1. **Broker grip/trigger before actions execute.** Publish observations with physical hand and sequence ID. Body Slots and other recognizers propose actions before defaults act. Resolve one consuming action using visible user priorities. The current implementation provides explicit INI priority overrides and a declared registration-order fallback; the additive input service also implements discard-only deferred hold/multi-tap reservations.
 
 2. **Replace anonymous restrictions with owned leases.** Consumers request suppression for a named hand, feature and lifetime and release only their own effects. This replaces migrated uses of shared settings and `DisableHand`/`EnableHand`. Suppression and explicit item release remain separate operations.
 
@@ -20,7 +20,7 @@ The only maintained source of the full concept and illustrative pseudo-ABI is [t
 
 4. **Compose physical contributions through one final actuator per owned body.** Support grip, drive and constraint requests for weight, collision, penetration and climbing. Report effective acquisition, saturation, break and release. PLANCK validates NPC endpoints; HIGGS applies hand/weapon constraints. Player locomotion and fall rules remain with the climbing consumer.
 
-5. **Publish coherent copied state.** Expose possession, grip geometry, motion, contacts and release observations with source, units, space, time, frame/physics IDs and body generations. Distinguish tracked controller, resolved palm and VRIK-rendered hand; identify the tracking-to-world transform and the observation Body Slots associates with its zone probe. The new snapshot is a bounded foundation, not full contact/history unification.
+5. **Publish coherent copied state.** Expose possession, grip geometry, motion, contacts and release observations with source, units, space, time, frame/physics IDs and body generations. Distinguish tracked controller, resolved palm and VRIK-rendered hand; identify the tracking-to-world transform and the observation Body Slots associates with its zone probe. The additive observations service supplies coherent controller/item motion, contact history and matching release snapshots with explicit coordinate/continuity provenance; rendered VRIK pose remains separate.
 
 6. **Respect the slot-service/runtime boundary.** All slot mechanics, spatial offers, slot reservations and presentation readiness belong to Body Slots. HIGGS grants input/hand resources and performs physical requests; the content executor chooses and commits the item. Zone entry or a visible preview is not proof of possession. Unavailable/rebound slots invalidate undispatched offers; a started operation awaits its actual outcome rather than being treated as rolled back. Generic slot filters remain outside HIGGS inventory policy.
 

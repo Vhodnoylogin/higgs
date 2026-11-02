@@ -1,26 +1,32 @@
 # HIGGS ([Nexus link](https://www.nexusmods.com/skyrimspecialedition/mods/43930))
 
+The additive [owned physical policies](docs/physical-policies.md) cover constrained held-item mass/inertia/COM, per-hand physics-grab preference, HIGGS finger suppression and controller-node culling. Independent secondary-grip transforms extend the negotiated finite operation service. Their native-source/compiler evidence and remaining presentation limits are documented separately.
+
 ## Proposed cooperation with VRIK HIGGS and PLANCK
 
 This fork's intended architectural direction is described in [the HIGGS synergy requirements](docs/trinity-synergy.md), linked to the full concept maintained only in Body Pouches. HIGGS owns hand state, hand use, input and physical possession; Body Slots owns all slot mechanics, VRIK owns body/virtual poses, PLANCK owns NPC physics and PPB supplies anatomy. The full concept remains solely in Body Pouches. Fork source APIs are distinct from a released integration or an agreement with framework authors.
+
+The additive [articulated hand-parts API](docs/articulated-hand-parts.md) lets a provider such as PPB submit fitted finger BOXes while HIGGS owns their native bodies, keyframes, filters, lifecycle and canonical contact attribution. It preserves the existing palm and separates proposed geometry, actual applied revision, observed body pose and keyframe target. Offline checks and native compilation do not establish an in-game PPB port.
 
 ## Scoped hand and weapon collision restrictions
 
 This development fork implements a separate, negotiated [restriction service](docs/scoped-restrictions.md) for physical left/right hands. Consumers can acquire, renew and release bounded restrictions without clearing another consumer's lease. The existing 001 header and vtable remain unchanged. A scoped hand restriction blocks new interactions while preserving existing possession; collision suppression takes precedence over collision force requests.
 
-The production service and its copied C ABI pass standalone ownership, lifecycle, concurrency and compatibility checks. Full native-plugin integration has not been built or tested in Skyrim: the existing project requires external SKSE/Havok dependencies. This restriction service remains independently negotiated; the additive hand broker below supplies input/grant/action contracts without taking over consumer gameplay or inventory policy.
+The production service and its copied C ABI pass standalone ownership, lifecycle, concurrency and compatibility checks. The complete native plugin builds with explicitly staged external SKSE/Havok declarations and the game's existing allocator bindings; Skyrim behavior remains untested. This restriction service remains independently negotiated; the additive hand broker below supplies input/grant/action contracts without taking over consumer gameplay or inventory policy.
 
 Run the standalone checks with `python tests/run_tests.py --build-dir <external-output-directory>`. The tests compile the actual production core and ABI adapter, including a C consumer, without SKSE or Havok. See the service documentation for its lifetime, renewal and threading contract.
 
-The [native build prerequisites](docs/native-build-prerequisites.md) distinguish the available SKSE/toolchain from nonportable project paths and the remaining compatible Havok headers.
+The [native build prerequisites](docs/native-build-prerequisites.md) distinguish the available SKSE/toolchain from legacy project paths, and document reproducible native build commands and their qualification limits.
 
 An internal [controller-motion availability repair](docs/controller-motion.md) clears only affected tracking histories on observed failures, preserves valid five-sample behavior and player/object release motion, and treats unavailable motion separately from stationary motion. It adds no callback-silence freshness guarantee. The standalone command above also runs its actual numeric core and extracted callback/consumer fixtures; `--motion-only` selects the motion checks. Native plugin/game qualification remains pending.
 
 The additive [read-only velocity ABI](docs/velocity-observation.md) copies that existing owner's physical-hand pair, cached velocity/history metrics, private continuity state and producer-computed observation age. Consumers choose an explicit age policy; last-observed availability is not current tracking or palm validity. The separate C header/export preserves official001 and scoped restrictions. `--motion-abi-only` runs its actual core, C/C++ consumers and isolated DLL discovery checks without claiming a full native-plugin build.
 
-The additive [hand broker and physical operations](docs/hand-broker.md) now supply copied occupancy/availability, synchronous grip/trigger arbitration, end-user priority overrides, owner grants, opt-in executor routing, monotonic correlated receipts, removable callbacks and queued physical requests. Finite native source adapters cover static world support, physical hand targets, existing secondary weapon support, grip transforms, motor caps, box hand geometry and bounded haptics. Actual-source synthetic fixtures and core/C/DLL checks pass; they do not qualify native layouts, hook order in the running game, collision response or hardware. Native compilation reaches the missing compatible Havok header; no live plugin installation or game test has occurred.
+The additive [hand services](docs/hand-broker.md) supply coherent occupancy/availability, common controller observations and arbitration, deferred hold/multi-tap recognition, end-user priorities, owned sessions/grants, executor routing and fenced commits. Typed transactions preserve original/proxy/display identities and separate inventory, equipment, physical grip and compensation facts. Finite native paths cover static and moving world support, PLANCK-leased NPC endpoints, owned held-item constraints, physical hand targets, existing secondary support, grip transforms, motor caps, box hand geometry and coordinated haptics. [Motion/contact/release observations](docs/hand-observations.md) preserve source and continuity identities. Production-core/C/DLL checks, actual-source synthetic fixtures and native compilation provide distinct evidence; none establishes running-game collision response, hardware delivery or author agreement. No live installation or game test has occurred.
 
 This mod is complicated.
+
+The [native player inventory executor](docs/native-inventory.md) supplies observed exact-stack selection tickets and common inventory/world/hand, consumption and hand-equipment transactions. Consumers reuse the existing transaction coordinator; they do not need a bespoke engine remove/pickup/equip executor. Deferred engine postfacts, uncertain mutations and compensation remain explicit. This source is offline tested and native compiled, with no running-game qualification.
 
 To build from source, it requires object definitions / headers similar to those belonging to havok 2010.2. I will not be providing these, nor do I claim to have them myself.
 

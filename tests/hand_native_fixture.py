@@ -17,12 +17,21 @@ def generate(root, out):
     hand=(root/'src/hand.cpp').read_text()
     # Verify receipt calls remain after the real keyframe/constraint mutations;
     # the full Hand::Update engine graph cannot be qualified by these seams.
+    secondary_start=hand.index('state = State::HeldTwoHanded;')
+    if '++synergySecondaryEpisode;' not in hand[secondary_start-100:secondary_start]:
+        raise RuntimeError('secondary native lifetime lacks monotonic episode')
     for mutation in ['UpdateKeyframedNode(collidableNode, desiredTransform);',
-                     'constraintData->m_atoms.m_transforms.m_transformB.m_translation = NiPointToHkVector(newPivotB);']:
+                     'constraintData->m_atoms.m_transforms.m_transformB.m_translation = NiPointToHkVector(newPivotB);',
+                     'NiMathDouble::UpdateTransform(fpWeaponNode, vrikCorrectedTransform);']:
         at=hand.index(mutation)
         if 'HiggsHands::ConfirmNativeGrip(isLeft);' not in hand[at:at+len(mutation)+100]:
             raise RuntimeError('grip receipt precedes/lacks actual actuator mutation')
     extracted=native[native.index('namespace HiggsHands'):]
     for signature in ['void Hand::ControllerStateUpdate(', 'hkTransform Hand::ComputeHandCollisionTransform(', 'void Hand::MoveHandAndWeaponCollision(']:
         extracted+='\n'+method(hand,signature)+'\n'
-    (out/'hand_native_extracted.cpp').write_text('#include "hand_native_fakes.h"\n'+extracted+'\n#include "hand_native_fixture_cases.h"\n')
+    observations=(root/'src/hand_observations_native.cpp').read_text()
+    extracted+='\nnamespace HiggsHands { namespace {\n'+method(observations,'void Vector(')+'\n}\n'
+    extracted+=method(observations,'void ObserveNativeSamples(')+'\n'+method(observations,'void ObserveNativeContact(')+'\n}\n'
+    (out/'hand_native_extracted.cpp').write_text('#include "hand_native_fakes.h"\n'+extracted+'\n#include "secondary_grip_cases.h"\n#include "hand_native_fixture_cases.h"\n')
+    support=(root/'src/hand_support_native.cpp').read_text()
+    (out/'support_native_extracted.cpp').write_text('#include "support_native_fakes.h"\n'+support[support.index('namespace HiggsHands'):]+ '\n#include "support_native_cases.h"\n')

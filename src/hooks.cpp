@@ -15,6 +15,7 @@
 #include "RE/offsets.h"
 #include "hand.h"
 #include "hand_broker.h"
+#include "hand_parts_native.h"
 #include "config.h"
 #include "main.h"
 #include "finger_curves.h"
@@ -707,7 +708,9 @@ typedef hkpStepResult(*_hkpWorld_stepDeltaTime)(hkpWorld *_this, float a_delta);
 _hkpWorld_stepDeltaTime bhkWorld_Update_ahkpWorld_stepDeltaTime_Original = 0;
 hkpStepResult PrePhysicsStepHook(ahkpWorld *_this, float a_physicsDeltaTime)
 {
+    HiggsHands::BeginNativeHandPartsStep(static_cast<bhkWorld*>(_this->m_userData),a_physicsDeltaTime);
     HiggsPluginAPI::TriggerPrePhysicsStepCallbacks(_this->m_userData);
+    HiggsHands::ApplyNativeHandPartsStep(static_cast<bhkWorld*>(_this->m_userData),a_physicsDeltaTime);
 
     PrePhysicsStep(_this->m_userData);
 

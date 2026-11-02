@@ -39,6 +39,9 @@
 #include "pluginapi.h"
 #include "synergy_runtime.h"
 #include "hand_broker.h"
+#include "hand_support.h"
+#include "hand_observations.h"
+#include "hand_input_extended.h"
 #include "math_utils.h"
 #include "physics.h"
 #include "main.h"
@@ -186,6 +189,10 @@ void FillControllerVelocities(NiAVObject *hmdNode, vr_src::TrackedDevicePose_t* 
     };
     capture();
     HiggsMotion::Tracking().Apply(event);
+#if defined(HIGGS_OBSERVATIONS_NATIVE)
+    HiggsHands::ObserveNativeControllers(hmdNode,pGamePoseArray,unGamePoseArrayCount,
+        ticket.generation,ticket.sequence,event.observedAtNs);
+#endif
 }
 
 
@@ -726,6 +733,8 @@ bool WaitPosesCB(vr_src::TrackedDevicePose_t* pRenderPoseArray, uint32_t unRende
 void ControllerStateCB(uint32_t unControllerDeviceIndex, vr_src::VRControllerState001_t *pControllerState, uint32_t unControllerStateSize, bool& state)
 {
     if (!initComplete) return;
+    if(!pControllerState||unControllerStateSize<sizeof(*pControllerState)||!g_openVR||!*g_openVR||!(*g_openVR)->vrSystem)return;
+    auto inputPhase=HiggsHands::Service().NativePhase();
 
     PlayerCharacter *player = *g_thePlayer;
     if (!player || !player->GetNiNode())
@@ -737,12 +746,18 @@ void ControllerStateCB(uint32_t unControllerDeviceIndex, vr_src::VRControllerSta
     vr_src::ETrackedControllerRole leftControllerRole = vr_src::ETrackedControllerRole::TrackedControllerRole_LeftHand;
     vr_src::TrackedDeviceIndex_t leftController = (*g_openVR)->vrSystem->GetTrackedDeviceIndexForControllerRole(leftControllerRole);
 
-    if (unControllerDeviceIndex == rightController) {
-        g_rightHand->ControllerStateUpdate(unControllerDeviceIndex, pControllerState);
-    }
-    else if (unControllerDeviceIndex == leftController) {
-        g_leftHand->ControllerStateUpdate(unControllerDeviceIndex, pControllerState);
-    }
+    if(leftController==rightController)return;
+    const auto update=[&](Hand* hand,uint32_t physicalHand){
+        HIGGS_ControllerFrame frame{};frame.structSize=sizeof(frame);frame.physicalHand=physicalHand;frame.deviceIndex=unControllerDeviceIndex;frame.packetNumber=pControllerState->unPacketNum;
+        const auto observed=HiggsHands::Service().CopyPublished();frame.epoch=observed.epoch;frame.handObservationId=observed.observationId;frame.observedAtNs=HiggsHands::Now();frame.flags=HIGGS_INPUT_NO_HARDWARE_TIME|(hand->useTouchForGrip?HIGGS_INPUT_GRIP_USES_TOUCH:0u);
+        frame.pressed=pControllerState->ulButtonPressed;frame.touched=pControllerState->ulButtonTouched;
+        for(unsigned i=0;i<5;++i){vr_src::ETrackedPropertyError error;const auto axisType=(*g_openVR)->vrSystem->GetInt32TrackedDeviceProperty(unControllerDeviceIndex,static_cast<vr_src::ETrackedDeviceProperty>(vr_src::Prop_Axis0Type_Int32+i),&error);frame.axisTypes[i]=error==vr_src::TrackedProp_Success&&axisType>=0&&axisType<=3?static_cast<uint32_t>(axisType):uint32_t(HIGGS_AXIS_UNKNOWN);const auto& axis=pControllerState->rAxis[i];if(frame.axisTypes[i]>HIGGS_AXIS_NONE&&frame.axisTypes[i]<HIGGS_AXIS_UNKNOWN&&std::isfinite(axis.x)&&std::isfinite(axis.y)&&axis.x>=-1.001f&&axis.x<=1.001f&&axis.y>=-1.001f&&axis.y<=1.001f){frame.axisValidMask|=1u<<i;frame.axes[i][0]=axis.x;frame.axes[i][1]=axis.y;}}
+        HiggsHands::BeginControllerFrame(frame);
+        hand->ControllerStateUpdate(unControllerDeviceIndex,pControllerState);
+        HiggsHands::FinishControllerFrame(physicalHand,pControllerState->ulButtonPressed,pControllerState->ulButtonTouched);
+    };
+    if (unControllerDeviceIndex == rightController) update(g_rightHand,HIGGS_HAND_RIGHT);
+    else if (unControllerDeviceIndex == leftController) update(g_leftHand,HIGGS_HAND_LEFT);
 }
 
 
@@ -1112,6 +1127,7 @@ extern "C" {
                 g_messaging->RegisterListener(g_pluginHandle, nullptr, HiggsPluginAPI::ModMessageHandler);
             }
             else if (msg->type == SKSEMessagingInterface::kMessage_PostPostLoad) {
+                HiggsHands::InitializeNativeSupport(g_messaging,g_pluginHandle);
                 // Get the VRIK plugin API
                 g_vrikInterface = vrikPluginApi::getVrikInterface001(g_pluginHandle, g_messaging);
                 if (g_vrikInterface) {

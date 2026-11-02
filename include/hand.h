@@ -360,6 +360,7 @@ struct Hand
     double startGrabLerpHandDuration = 0;
 
     double selectedTwoHandTime = 0;
+    uint64_t synergySecondaryEpisode = 0;
     bool wasSelectedTwoHandLerping = false;
 
     float handSize = 1.f;

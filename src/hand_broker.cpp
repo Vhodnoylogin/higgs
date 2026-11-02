@@ -1,4 +1,5 @@
 #include "hand_broker.h"
+#include "hand_observations.h"
 #include <algorithm>
 #include <cctype>
 #include <charconv>
@@ -15,17 +16,36 @@ thread_local Broker *callbackBroker = nullptr;
 thread_local uint64_t callbackOwner = 0, recognitionInput = 0;
 thread_local uint32_t recognitionHand = 0;
 thread_local uint64_t recognitionGeneration = 0;
+thread_local const HIGGS_InputEvent *extendedRecognition = nullptr;
+thread_local const HIGGS_InputCandidate *extendedSubmission = nullptr;
+thread_local bool recognitionFreshDown = false;
+thread_local uint64_t extendedRegistration = 0;
 thread_local uint32_t callbackDepth = 0;
 thread_local Broker *flushingBroker = nullptr;
+thread_local uint64_t transferExecutor = 0;
+struct DeferredWorldDrain
+{
+    Broker &broker;
+    ~DeferredWorldDrain()
+    {
+        broker.ApplyDeferredWorld();
+    }
+};
 struct CallbackScope
 {
     Broker *oldBroker = callbackBroker;
     uint64_t oldOwner = callbackOwner, oldInput = recognitionInput;
+    const HIGGS_InputEvent *oldExtended = extendedRecognition;
+    uint64_t oldExtendedRegistration = extendedRegistration;
+    bool oldFreshDown = recognitionFreshDown;
     CallbackScope(Broker *b, uint64_t owner, uint64_t input = 0)
     {
         callbackBroker = b;
         callbackOwner = owner;
         recognitionInput = input;
+        extendedRecognition = nullptr;
+        extendedRegistration = 0;
+        recognitionFreshDown = false;
         ++callbackDepth;
     }
     ~CallbackScope()
@@ -34,6 +54,9 @@ struct CallbackScope
         callbackBroker = oldBroker;
         callbackOwner = oldOwner;
         recognitionInput = oldInput;
+        extendedRecognition = oldExtended;
+        extendedRegistration = oldExtendedRegistration;
+        recognitionFreshDown = oldFreshDown;
     }
 };
 bool Terminal(uint32_t stage)
@@ -110,6 +133,25 @@ int32_t Broker::PriorityLocked(const Client &client, bool &overridden) const
     overridden = false;
     return client.info.userPriority;
 }
+bool Broker::EffectivePriority(uint64_t owner, int32_t &value)
+{
+    std::lock_guard lock(mutex_);
+    Client legacy{};
+    const Client *client = nullptr;
+    if (!owner)
+    {
+        const char name[] = "HIGGS";
+        std::memcpy(legacy.info.name, name, sizeof(name));
+        client = &legacy;
+    }
+    else
+        client = ClientLocked(owner);
+    if (!client)
+        return false;
+    bool overridden = false;
+    value = PriorityLocked(*client, overridden);
+    return true;
+}
 Broker::Client *Broker::ClientLocked(uint64_t id)
 {
     for (auto &c : clients_)
@@ -141,7 +183,7 @@ Broker::Action *Broker::NewActionLocked()
         }
     Action *oldest = nullptr;
     for (auto &a : actions_)
-        if (!a.grantActive && !a.operationActive && !a.nativeStarted && Terminal(a.result.stage) &&
+        if (!a.grantActive && !a.operationActive && !a.nativeStarted && !a.retained && Terminal(a.result.stage) &&
             (!oldest || a.request.requestId < oldest->request.requestId))
             oldest = &a;
     if (oldest)
@@ -190,7 +232,8 @@ HIGGS_HandStatus Broker::Unregister(uint64_t owner)
         if (r->owner == owner)
             r->active = false;
     for (auto &a : actions_)
-        if (a.request.owner == owner)
+        if (a.request.owner == owner ||
+            (a.recognition.stage == HIGGS_RECOGNITION_WAITING && a.recognizerOwner == owner))
         {
             a.grantActive = false;
             a.operationActive = false;
@@ -252,9 +295,14 @@ HIGGS_HandStatus Broker::Remove(uint64_t owner, uint64_t token)
         return HIGGS_HAND_NOT_FOUND;
     if (r->owner != owner)
         return HIGGS_HAND_WRONG_OWNER;
+    for (const auto &action : actions_)
+        if (action.nativeStarted && action.request.executor == token)
+            return HIGGS_HAND_PENDING;
     r->active = false;
     for (auto &a : actions_)
-        if (a.request.executor == token && !Terminal(a.result.stage))
+        if ((a.request.executor == token ||
+             (a.recognition.stage == HIGGS_RECOGNITION_WAITING && a.inputRegistration == token)) &&
+            !Terminal(a.result.stage))
         {
             a.grantActive = false;
             FinishLocked(a, HIGGS_ACTION_CANCELLED, HIGGS_HAND_NOT_FOUND);
@@ -283,11 +331,84 @@ bool Broker::Enter(const std::shared_ptr<Registration> &r)
     ++r->inFlight;
     return true;
 }
+bool Broker::InTransferCallback(uint64_t owner, uint64_t executor)
+{
+    return callbackBroker == this && callbackOwner == owner && transferExecutor == executor;
+}
+bool Broker::InvokeTransfer(uint64_t owner, uint64_t token, const HIGGS_TransferExecution &execution)
+{
+    auto phase = NativePhase();
+    DeferredWorldDrain deferredWorldDrain{*this};
+    std::shared_ptr<Registration> r;
+    {
+        std::lock_guard lock(mutex_);
+        r = RegistrationLocked(token);
+        if (!r || r->kind != 4 || r->owner != owner || !r->transfer)
+            return false;
+        if (auto a = ActionLocked(execution.requestId))
+            a->nativeStarted = true;
+    }
+    if (!Enter(r))
+    {
+        std::lock_guard lock(mutex_);
+        if (auto a = ActionLocked(execution.requestId))
+            a->nativeStarted = false;
+        return false;
+    }
+    bool success = true;
+    {
+        CallbackScope scope(this, owner);
+        const auto previous = transferExecutor;
+        transferExecutor = token;
+        try
+        {
+            r->transfer(&execution, r->context);
+        }
+        catch (...)
+        {
+            success = false;
+        }
+        transferExecutor = previous;
+    }
+    Leave(r);
+    uint64_t completedGrant = 0;
+    {
+        std::lock_guard lock(mutex_);
+        if (auto a = ActionLocked(execution.requestId))
+        {
+            a->nativeStarted = false;
+            if (a->domainOwned && a->grantActive && a->result.stage >= HIGGS_ACTION_COMPLETED)
+                completedGrant = a->request.grant;
+        }
+        ExpireLocked(Now());
+    }
+    if (completedGrant)
+        Release(owner, completedGrant);
+    ApplyDeferredWorld();
+    return success;
+}
 void Broker::Leave(const std::shared_ptr<Registration> &r)
 {
     std::lock_guard lock(mutex_);
     --r->inFlight;
     drained_.notify_all();
+}
+void Broker::InvokeSessionExecutor(const std::shared_ptr<Registration> &r, const HIGGS_ActionRequest &request)
+{
+    if (!r || !Enter(r))
+        return;
+    {
+        CallbackScope scope(this, r->owner);
+        try
+        {
+            r->executor(&request, r->context);
+        }
+        catch (...)
+        {
+            CancelNativeRequest(r->owner, request.requestId);
+        }
+    }
+    Leave(r);
 }
 void Broker::QueueResultLocked(const Action &a)
 {
@@ -327,6 +448,7 @@ void Broker::QueueEventLocked(uint32_t type, uint32_t hand, uint32_t ref, Clock 
         e.hand = *state;
         e.poseObservationId = state->poseObservationId;
     }
+    ObserveRelease(e, snapshot_);
     pendingEvents_.push_back(e);
 }
 void Broker::FlushEvents()
@@ -389,6 +511,19 @@ void Broker::RefreshLocked()
 {
     for (auto &h : snapshot_.hands)
     {
+        h.unavailableReasons = nativeUnavailableReasons_[h.physicalHand == HIGGS_HAND_LEFT ? 0 : 1];
+        for (const auto &owned : actions_)
+            if (owned.ownedActuator && owned.request.epoch == snapshot_.epoch &&
+                (owned.request.physicalHands & h.physicalHand))
+            {
+                bool authority = false;
+                for (const auto &grant : actions_)
+                    if (grant.grantActive && grant.request.grant == owned.request.grant &&
+                        grant.request.owner == owned.request.owner)
+                        authority = true;
+                if (!authority)
+                    h.unavailableReasons |= HIGGS_HAND_REASON_EXISTING_USE;
+            }
         h.grant = 0;
         h.owner = 0;
         const bool known =
@@ -414,6 +549,8 @@ void Broker::RefreshLocked()
 }
 bool Broker::EligibleLocked(uint32_t hands) const
 {
+    if (worldChangePending_)
+        return false;
     if (!snapshot_.worldReady || !hands || (hands & ~3u))
         return false;
     for (const auto &h : snapshot_.hands)
@@ -426,6 +563,14 @@ bool Broker::EligibleLocked(uint32_t hands) const
                 return false;
         }
     return true;
+}
+bool Broker::GrantReadyLocked(uint64_t owner, uint64_t grant) const
+{
+    for (const auto &action : actions_)
+        if (action.grantActive && action.request.owner == owner && action.request.grant == grant &&
+            action.recognition.stage != HIGGS_RECOGNITION_WAITING)
+            return true;
+    return false;
 }
 bool Broker::RoutedLocked(uint64_t executor, uint64_t recognizer, uint32_t hands)
 {
@@ -473,6 +618,9 @@ HIGGS_HandStatus Broker::Revoke(uint64_t owner, uint64_t executor, uint64_t reco
         return HIGGS_HAND_NOT_FOUND;
     if (r->owner != owner)
         return HIGGS_HAND_WRONG_OWNER;
+    for (const auto &action : actions_)
+        if (action.nativeStarted && action.request.executor == executor && action.recognizerOwner == recognizer)
+            return HIGGS_HAND_PENDING;
     r->routes.erase(std::remove_if(r->routes.begin(), r->routes.end(),
                                    [&](const auto &route) { return route.first == recognizer; }),
                     r->routes.end());
@@ -507,6 +655,8 @@ HIGGS_HandStatus Broker::CancelRecognized(uint64_t recognizer, uint64_t request,
             return HIGGS_HAND_NOT_FOUND;
         if (a->recognizerOwner != recognizer)
             return HIGGS_HAND_WRONG_OWNER;
+        if (a->nativeStarted)
+            return HIGGS_HAND_PENDING;
         if (a->request.epoch != epoch || epoch != snapshot_.epoch)
             return HIGGS_HAND_STALE;
         if (a->result.stage >= HIGGS_ACTION_COMMITTED)
@@ -550,20 +700,24 @@ HIGGS_HandStatus Broker::Submit(uint64_t owner, const HIGGS_ActionCandidate &c, 
         return HIGGS_HAND_STALE;
     // A consumed Down owns its matching Up even if the executor already ended
     // the hand grant. Up observers may inspect; they cannot consume it again.
-    if (decision.consumed)
+    const auto parentGrant = extendedSubmission ? extendedSubmission->existingGrant : 0;
+    if (decision.consumed && !(parentGrant && recognitionFreshDown))
         return HIGGS_HAND_CONFLICT;
     // The generation belongs to the triggering physical hand; both-hand candidates
     // still validate both resources against the current coherent snapshot below.
     if (c.handGeneration != recognitionGeneration || !(c.physicalHands & recognitionHand))
         return HIGGS_HAND_STALE;
     ExpireLocked(now);
-    if (!EligibleLocked(c.physicalHands))
+    if (!InputEligibleLocked(c.physicalHands, exec->owner, parentGrant))
         return HIGGS_HAND_CONFLICT;
+    if (nextToken_ == (std::numeric_limits<uint64_t>::max)())
+        return HIGGS_HAND_CAPACITY;
     auto a = NewActionLocked();
     if (!a)
         return HIGGS_HAND_CAPACITY;
     a->candidate = c;
     a->recognizerOwner = owner;
+    a->inputRegistration = extendedRegistration;
     a->request = {};
     a->request.structSize = sizeof(a->request);
     a->request.requestId = nextToken_++;
@@ -576,17 +730,341 @@ HIGGS_HandStatus Broker::Submit(uint64_t owner, const HIGGS_ActionCandidate &c, 
     a->request.contextGeneration = c.contextGeneration;
     a->request.physicalHands = c.physicalHands;
     a->expires = now + static_cast<Clock>(c.grantDurationMs) * 1000000;
+    if (extendedSubmission)
+    {
+        a->inputSpec = *extendedSubmission;
+        a->recognition.structSize = sizeof(a->recognition);
+        a->recognition.requestId = a->request.requestId;
+        a->recognition.epoch = c.epoch;
+        a->recognition.inputId = c.inputId;
+        a->recognition.gesture = extendedSubmission->gesture;
+        a->recognition.initialFrame = extendedRecognition->frame;
+        a->inputControl = extendedRecognition->controlId;
+        a->inputTouch = (extendedRecognition->flags & HIGGS_INPUT_EFFECTIVE_SEMANTIC) &&
+                        (extendedRecognition->frame.flags & HIGGS_INPUT_GRIP_USES_TOUCH) &&
+                        a->inputControl == HIGGS_CONTROL_GRIP;
+        if (parentGrant)
+            for (const auto &parent : actions_)
+                if (parent.grantActive && parent.request.grant == parentGrant && parent.expires &&
+                    parent.expires < a->expires)
+                    a->expires = parent.expires;
+        for (unsigned h = 0; h < 2; ++h)
+            a->inputHandGenerations[h] = extendedRecognition->snapshot.hands[h].generation;
+        if (extendedSubmission->gesture)
+        {
+            a->inputExecutionExpires = a->expires;
+            a->recognition.deadlineAtNs =
+                (std::min)(a->expires, now + static_cast<uint64_t>(extendedSubmission->deadlineMs) * 1000000);
+            a->expires = a->recognition.deadlineAtNs;
+        }
+    }
     out = a->request.requestId;
     return HIGGS_HAND_OK;
 }
+bool Broker::InputEligibleLocked(uint32_t hands, uint64_t owner, uint64_t parentGrant) const
+{
+    if (!parentGrant)
+        return EligibleLocked(hands);
+    if (worldChangePending_ || !snapshot_.worldReady || !hands || (hands & ~3u))
+        return false;
+    bool parent = false;
+    for (const auto &a : actions_)
+        if (a.grantActive && a.request.grant == parentGrant && a.request.owner == owner &&
+            a.request.epoch == snapshot_.epoch && (hands & ~a.request.physicalHands) == 0)
+            parent = true;
+    if (!parent)
+        return false;
+    for (const auto &h : snapshot_.hands)
+        if (h.physicalHand & hands)
+            if (h.grant != parentGrant || h.owner != owner || h.availability != HIGGS_AVAILABILITY_RESERVED ||
+                h.unavailableReasons)
+                return false;
+    return true;
+}
+HIGGS_HandStatus Broker::InputRecognizer(uint64_t owner, const HIGGS_InputRecognizerSpec &spec, uint64_t &out)
+{
+    if (spec.structSize != sizeof(spec) || !spec.physicalHands || (spec.physicalHands & ~3u) || !spec.controlMask ||
+        (spec.controlMask & ~KnownControlMask()) || spec.eventMask > 63 || spec.reserved || !spec.callback)
+        return HIGGS_HAND_INVALID_ARGUMENT;
+    auto registration = std::make_shared<Registration>();
+    std::lock_guard lock(mutex_);
+    if (!ClientLocked(owner))
+        return HIGGS_HAND_INVALID_CLIENT;
+    if (registrations_.size() >= 256 || nextToken_ == (std::numeric_limits<uint64_t>::max)())
+        return HIGGS_HAND_CAPACITY;
+    registration->id = nextToken_++;
+    registration->owner = owner;
+    registration->kind = 5;
+    registration->input = spec;
+    registrations_.push_back(registration);
+    out = registration->id;
+    return HIGGS_HAND_OK;
+}
+HIGGS_HandStatus Broker::SubmitInputCandidate(uint64_t owner, const HIGGS_InputCandidate &candidate, uint64_t &out,
+                                              Clock now)
+{
+    if (!extendedRecognition || !(extendedRecognition->flags & HIGGS_INPUT_ACTIONABLE))
+        return HIGGS_HAND_WRONG_PHASE;
+    if (extendedRecognition->frame.flags & HIGGS_INPUT_BASELINE)
+        return HIGGS_HAND_NOT_READY;
+    const auto validation = ValidateInputCandidate(candidate);
+    if (validation)
+        return validation;
+    HIGGS_ControllerFrame latest{};
+    if (!InputFrames().Latest(extendedRecognition->physicalHand, latest) ||
+        latest.frameId != extendedRecognition->frame.frameId)
+        return HIGGS_HAND_STALE;
+    if ((candidate.gesture || candidate.existingGrant) && !recognitionFreshDown)
+        return HIGGS_HAND_WRONG_PHASE;
+    if (candidate.existingGrant)
+    {
+        std::lock_guard lock(mutex_);
+        for (const auto &a : actions_)
+            if (a.grantActive && a.request.grant == candidate.existingGrant &&
+                a.recognition.stage == HIGGS_RECOGNITION_WAITING && a.inputControl == extendedRecognition->controlId)
+                return HIGGS_HAND_CONFLICT;
+    }
+    const auto *previous = extendedSubmission;
+    extendedSubmission = &candidate;
+    HIGGS_HandStatus status;
+    try
+    {
+        status = Submit(owner, candidate.candidate, out, now);
+    }
+    catch (...)
+    {
+        extendedSubmission = previous;
+        throw;
+    }
+    extendedSubmission = previous;
+    return status;
+}
+HIGGS_HandStatus Broker::CopyInputRecognition(uint64_t owner, uint64_t request, HIGGS_InputRecognition &out)
+{
+    std::lock_guard lock(mutex_);
+    if (!ClientLocked(owner))
+        return HIGGS_HAND_INVALID_CLIENT;
+    const auto now = Now();
+    ExpireLocked(now);
+    const auto *a = ActionLocked(request);
+    if (!a || !a->inputSpec.structSize)
+        return HIGGS_HAND_NOT_FOUND;
+    if (a->request.owner != owner && a->recognizerOwner != owner)
+        return HIGGS_HAND_WRONG_OWNER;
+    auto value = a->recognition;
+    if (!a->selected && Terminal(a->result.stage))
+        value.stage = HIGGS_RECOGNITION_CANCELLED;
+    else if (value.stage == HIGGS_RECOGNITION_WAITING && !a->grantActive)
+        value.stage = now >= value.deadlineAtNs ? HIGGS_RECOGNITION_EXPIRED : HIGGS_RECOGNITION_CANCELLED;
+    out = value;
+    return HIGGS_HAND_OK;
+}
+void Broker::NotifyInputObservations(const HIGGS_InputEvent *events, uint32_t count)
+{
+    if (!events || count > 96)
+        return;
+    std::lock_guard serial(dispatch_);
+    const auto snapshot = CopyPublished();
+    auto registrations = List(5);
+    for (unsigned i = 0; i < count; ++i)
+    {
+        auto event = events[i];
+        if (event.frame.epoch != snapshot.epoch || event.controlId >= 64 || event.kind < 1 || event.kind > 6)
+            continue;
+        event.snapshot = snapshot;
+        for (auto &registration : registrations)
+            if ((registration->input.physicalHands & event.physicalHand) &&
+                (registration->input.controlMask & (UINT64_C(1) << event.controlId)) &&
+                (!registration->input.eventMask || (registration->input.eventMask & (1u << (event.kind - 1)))) &&
+                Enter(registration))
+            {
+                CallbackScope scope(this, registration->owner);
+                try
+                {
+                    registration->input.callback(&event, registration->input.context);
+                }
+                catch (...)
+                {
+                }
+                Leave(registration);
+            }
+    }
+}
+void Broker::PrimeInputFrame(const HIGGS_ControllerFrame &frame)
+{
+    if (!Hand(frame.physicalHand))
+        return;
+    std::lock_guard serial(dispatch_);
+    std::lock_guard lock(mutex_);
+    if (frame.epoch != snapshot_.epoch)
+        return;
+    const auto mask =
+        ActionControlMask() & ~((UINT64_C(1) << HIGGS_CONTROL_GRIP) | (UINT64_C(1) << HIGGS_CONTROL_TRIGGER));
+    for (unsigned id = 0; id < 64; ++id)
+        if (mask & (UINT64_C(1) << id))
+        {
+            down_[frame.physicalHand - 1][2 + id] = (frame.pressed & (UINT64_C(1) << id)) != 0;
+            consumed_[frame.physicalHand - 1][2 + id] = down_[frame.physicalHand - 1][2 + id];
+        }
+}
+uint64_t Broker::InputSuppressionMask(uint32_t hand)
+{
+    if (!Hand(hand))
+        return 0;
+    std::lock_guard lock(mutex_);
+    ExpireLocked(Now());
+    const auto index = hand - 1;
+    if (snapshot_.hands[index].grant)
+        return ActionControlMask();
+    uint64_t mask = 0;
+    for (unsigned id = 0; id < 64; ++id)
+        if (consumed_[index][2 + id])
+            mask |= UINT64_C(1) << id;
+    if (consumed_[index][0])
+        mask |= UINT64_C(1) << HIGGS_CONTROL_GRIP;
+    if (consumed_[index][1])
+        mask |= UINT64_C(1) << HIGGS_CONTROL_TRIGGER;
+    return mask & ActionControlMask();
+}
+void Broker::AdvanceInputRecognitions(const HIGGS_ControllerFrame &frame)
+{
+    std::lock_guard serial(dispatch_);
+    std::array<HIGGS_ActionRequest, 256> work{};
+    size_t count = 0;
+    {
+        std::lock_guard lock(mutex_);
+        ExpireLocked(frame.observedAtNs);
+        if (frame.epoch != snapshot_.epoch)
+            return;
+        for (auto &a : actions_)
+            if (a.recognition.stage == HIGGS_RECOGNITION_WAITING &&
+                a.recognition.initialFrame.physicalHand == frame.physicalHand)
+            {
+                const auto cancel = [&](uint32_t stage, uint32_t reason) {
+                    a.recognition.stage = stage;
+                    a.grantActive = false;
+                    FinishLocked(a, HIGGS_ACTION_CANCELLED, reason);
+                };
+                if (!a.grantActive || frame.observedAtNs >= a.recognition.deadlineAtNs)
+                {
+                    a.recognition.stage = frame.observedAtNs >= a.recognition.deadlineAtNs
+                                              ? HIGGS_RECOGNITION_EXPIRED
+                                              : HIGGS_RECOGNITION_CANCELLED;
+                    continue;
+                }
+                const auto recognizer = RegistrationLocked(a.inputRegistration);
+                bool valid = frame.status == HIGGS_INPUT_FRAME_READY && ClientLocked(a.recognizerOwner) && recognizer &&
+                             recognizer->active &&
+                             InputEligibleLocked(a.request.physicalHands, a.request.owner, a.request.grant);
+                for (unsigned h = 0; h < 2; ++h)
+                    if (a.request.physicalHands & (h + 1))
+                        valid = valid && snapshot_.hands[h].generation == a.inputHandGenerations[h];
+                if (a.inputControl == HIGGS_CONTROL_GRIP)
+                    valid = valid && bool(frame.flags & HIGGS_INPUT_GRIP_USES_TOUCH) == a.inputTouch;
+                if (!valid)
+                {
+                    cancel(HIGGS_RECOGNITION_CANCELLED, HIGGS_HAND_STALE);
+                    continue;
+                }
+                const auto bit = UINT64_C(1) << a.inputControl;
+                const bool pressed = ((a.inputTouch ? frame.touched : frame.pressed) & bit) != 0;
+                bool match = false;
+                if (pressed != a.inputPressed)
+                {
+                    a.inputPressed = pressed;
+                    if (pressed)
+                    {
+                        if (a.inputSpec.gesture == HIGGS_GESTURE_MULTI_TAP && a.recognition.matchedTaps &&
+                            frame.observedAtNs - a.inputLastReleaseAt > uint64_t(a.inputSpec.tapGapMs) * 1000000)
+                        {
+                            cancel(HIGGS_RECOGNITION_CANCELLED, HIGGS_HAND_STALE);
+                            continue;
+                        }
+                        a.inputDownAt = frame.observedAtNs;
+                        a.expires = a.recognition.deadlineAtNs;
+                    }
+                    else
+                    {
+                        a.inputLastReleaseAt = frame.observedAtNs;
+                        if (a.inputSpec.gesture == HIGGS_GESTURE_HOLD)
+                        {
+                            cancel(HIGGS_RECOGNITION_CANCELLED, HIGGS_HAND_CONFLICT);
+                            continue;
+                        }
+                        if (frame.observedAtNs - a.inputDownAt > uint64_t(a.inputSpec.maxTapMs) * 1000000)
+                        {
+                            cancel(HIGGS_RECOGNITION_CANCELLED, HIGGS_HAND_CONFLICT);
+                            continue;
+                        }
+                        ++a.recognition.matchedTaps;
+                        match = a.recognition.matchedTaps == a.inputSpec.tapCount;
+                        if (!match)
+                            a.expires = (std::min)(a.recognition.deadlineAtNs,
+                                                   frame.observedAtNs + uint64_t(a.inputSpec.tapGapMs) * 1000000);
+                    }
+                }
+                if (a.inputSpec.gesture == HIGGS_GESTURE_HOLD && pressed &&
+                    frame.observedAtNs - a.inputDownAt >= uint64_t(a.inputSpec.holdMs) * 1000000)
+                    match = true;
+                if (a.inputSpec.gesture == HIGGS_GESTURE_MULTI_TAP && !pressed && a.recognition.matchedTaps &&
+                    frame.observedAtNs - a.inputLastReleaseAt > uint64_t(a.inputSpec.tapGapMs) * 1000000)
+                {
+                    cancel(HIGGS_RECOGNITION_CANCELLED, HIGGS_HAND_STALE);
+                    continue;
+                }
+                if (match)
+                {
+                    a.recognition.stage = HIGGS_RECOGNITION_MATCHED;
+                    a.recognition.recognizedAtNs = frame.observedAtNs;
+                    a.recognition.recognizedFrame = frame;
+                    a.expires = a.inputExecutionExpires;
+                    work[count++] = a.request;
+                }
+            }
+        RefreshLocked();
+    }
+    for (size_t i = 0; i < count; ++i)
+    {
+        std::shared_ptr<Registration> executor;
+        {
+            std::lock_guard lock(mutex_);
+            const auto *action = ActionLocked(work[i].requestId);
+            if (!action || !action->grantActive || action->recognition.stage != HIGGS_RECOGNITION_MATCHED)
+                continue;
+            executor = RegistrationLocked(action->request.executor);
+        }
+        if (executor && Enter(executor))
+        {
+            CallbackScope scope(this, executor->owner);
+            try
+            {
+                executor->executor(&work[i], executor->context);
+            }
+            catch (...)
+            {
+                std::lock_guard lock(mutex_);
+                if (auto *action = ActionLocked(work[i].requestId))
+                {
+                    action->grantActive = false;
+                    FinishLocked(*action, HIGGS_ACTION_REJECTED, HIGGS_HAND_INTERNAL_ERROR);
+                    RefreshLocked();
+                }
+            }
+            Leave(executor);
+        }
+    }
+    FlushEvents();
+}
 bool Broker::Input(uint32_t hand, uint32_t button, bool down, Clock now)
 {
-    if (!Hand(hand) || (button != HIGGS_INPUT_GRIP && button != HIGGS_INPUT_TRIGGER))
+    const auto control = InputControlId(button), slot = InputControlSlot(button);
+    if (!Hand(hand) || slot >= kInputControlSlots || control >= 64 || !(ActionControlMask() & (UINT64_C(1) << control)))
         return false;
     std::lock_guard dispatch(dispatch_);
-    const size_t hi = hand == HIGGS_HAND_LEFT ? 0 : 1, bi = button - 1;
+    const size_t hi = hand == HIGGS_HAND_LEFT ? 0 : 1, bi = slot;
     HIGGS_HandInput input{};
     bool wasConsumed = false;
+    bool freshDown = false;
     {
         std::lock_guard lock(mutex_);
         ExpireLocked(now);
@@ -596,6 +1074,13 @@ bool Broker::Input(uint32_t hand, uint32_t button, bool down, Clock now)
                 consumed_[hi][bi] = true;
             return consumed_[hi][bi] || snapshot_.hands[hi].grant != 0;
         }
+        if (nextInput_ == (std::numeric_limits<uint64_t>::max)())
+        {
+            down_[hi][bi] = down;
+            consumed_[hi][bi] = down;
+            return true;
+        }
+        freshDown = down && !down_[hi][bi];
         down_[hi][bi] = down;
         wasConsumed = consumed_[hi][bi] || (down && snapshot_.hands[hi].grant != 0);
         input.structSize = sizeof(input);
@@ -615,7 +1100,9 @@ bool Broker::Input(uint32_t hand, uint32_t button, bool down, Clock now)
         d.epoch = input.epoch;
         d.consumed = wasConsumed ? 1u : 0u;
     }
-    auto list = List(1);
+    HIGGS_ControllerFrame raw{};
+    InputFrames().Latest(hand, raw);
+    auto list = button < kAuxiliaryInputBase ? List(1) : std::vector<std::shared_ptr<Registration>>{};
     for (auto &r : list)
         if (Enter(r))
         {
@@ -635,6 +1122,51 @@ bool Broker::Input(uint32_t hand, uint32_t button, bool down, Clock now)
             recognitionGeneration = oldGeneration;
             Leave(r);
         }
+    if (raw.frameId && raw.frameId == CurrentControllerFrameId(hand) && raw.epoch == input.epoch &&
+        raw.observedAtNs <= now)
+    {
+        HIGGS_InputEvent event{};
+        event.structSize = sizeof(event);
+        event.physicalHand = hand;
+        event.controlId = control;
+        event.kind = down ? HIGGS_RAW_PRESS : HIGGS_RAW_RELEASE;
+        event.flags =
+            HIGGS_INPUT_ACTIONABLE | (button < kAuxiliaryInputBase ? uint32_t(HIGGS_INPUT_EFFECTIVE_SEMANTIC) : 0u);
+        event.axisIndex = UINT32_MAX;
+        event.inputId = input.inputId;
+        event.frame = raw;
+        event.snapshot = input.snapshot;
+        auto extended = List(5);
+        for (auto &r : extended)
+            if ((r->input.physicalHands & hand) && (r->input.controlMask & (UINT64_C(1) << control)) &&
+                (!r->input.eventMask || (r->input.eventMask & (1u << (event.kind - 1)))) && Enter(r))
+            {
+                CallbackScope scope(this, r->owner, input.inputId);
+                const auto *oldEvent = extendedRecognition;
+                const bool oldFresh = recognitionFreshDown;
+                const auto oldHand = recognitionHand;
+                const auto oldGeneration = recognitionGeneration;
+                const auto oldRegistration = extendedRegistration;
+                extendedRecognition = &event;
+                extendedRegistration = r->id;
+                recognitionFreshDown = freshDown;
+                recognitionHand = hand;
+                recognitionGeneration = input.handGeneration;
+                try
+                {
+                    r->input.callback(&event, r->input.context);
+                }
+                catch (...)
+                {
+                }
+                recognitionHand = oldHand;
+                recognitionGeneration = oldGeneration;
+                recognitionFreshDown = oldFresh;
+                extendedRegistration = oldRegistration;
+                extendedRecognition = oldEvent;
+                Leave(r);
+            }
+    }
     std::shared_ptr<Registration> executor;
     HIGGS_ActionRequest request{};
     bool consumed = wasConsumed;
@@ -648,12 +1180,14 @@ bool Broker::Input(uint32_t hand, uint32_t button, bool down, Clock now)
             {
                 auto client = ClientLocked(a.request.owner);
                 auto exec = RegistrationLocked(a.request.executor);
+                const auto recognizer = a.inputRegistration ? RegistrationLocked(a.inputRegistration) : nullptr;
                 bool overridden = false;
                 const auto effective = client ? PriorityLocked(*client, overridden) : 0;
                 if (client && exec && exec->active &&
+                    (!a.inputRegistration || (recognizer && recognizer->active && recognizer->kind == 5)) &&
                     RoutedLocked(a.request.executor, a.recognizerOwner, a.request.physicalHands) &&
                     input.epoch == snapshot_.epoch && snapshot_.hands[hi].generation == input.handGeneration &&
-                    EligibleLocked(a.request.physicalHands) &&
+                    InputEligibleLocked(a.request.physicalHands, a.request.owner, a.inputSpec.existingGrant) &&
                     (!winner || effective > priority ||
                      (effective == priority &&
                       (client->id < winner->request.owner ||
@@ -667,15 +1201,33 @@ bool Broker::Input(uint32_t hand, uint32_t button, bool down, Clock now)
         for (auto &a : actions_)
             if (a.request.inputId == input.inputId && !a.selected && !a.result.stage && &a != winner)
                 FinishLocked(a, HIGGS_ACTION_REJECTED, HIGGS_HAND_CONFLICT);
+        if (winner && !winner->inputSpec.existingGrant && nextToken_ == (std::numeric_limits<uint64_t>::max)())
+        {
+            FinishLocked(*winner, HIGGS_ACTION_REJECTED, HIGGS_HAND_CAPACITY);
+            winner = nullptr;
+        }
         if (winner)
         {
             winner->selected = true;
             winner->grantActive = true;
-            winner->request.grant = nextToken_++;
+            winner->request.grant = winner->inputSpec.existingGrant ? winner->inputSpec.existingGrant : nextToken_++;
             winner->request.poseObservationId = input.poseObservationId;
             FinishLocked(*winner, HIGGS_ACTION_ACCEPTED, 0);
             request = winner->request;
-            executor = RegistrationLocked(request.executor);
+            if (winner->inputSpec.structSize)
+            {
+                winner->recognition.stage =
+                    winner->inputSpec.gesture ? HIGGS_RECOGNITION_WAITING : HIGGS_RECOGNITION_MATCHED;
+                winner->inputPressed = down;
+                winner->inputDownAt = now;
+                if (!winner->inputSpec.gesture)
+                {
+                    winner->recognition.recognizedAtNs = now;
+                    winner->recognition.recognizedFrame = raw;
+                }
+            }
+            if (!winner->inputSpec.gesture)
+                executor = RegistrationLocked(request.executor);
             consumed = true;
             auto &d = decisions_[input.inputId % decisions_.size()];
             d.consumed = 1;
@@ -722,8 +1274,15 @@ HIGGS_HandStatus Broker::Report(uint64_t owner, const HIGGS_ActionResult &result
         auto a = ActionLocked(result.requestId);
         if (!a)
             return HIGGS_HAND_NOT_FOUND;
+        if (a->domainOwned)
+            return HIGGS_HAND_WRONG_PHASE;
+        if (a->nativeStarted)
+            return HIGGS_HAND_PENDING;
         if (a->request.owner != owner || a->request.executor != result.executor)
             return HIGGS_HAND_WRONG_OWNER;
+        if (a->recognition.stage == HIGGS_RECOGNITION_WAITING &&
+            (result.stage == HIGGS_ACTION_COMMITTED || result.stage == HIGGS_ACTION_COMPLETED))
+            return HIGGS_HAND_WRONG_PHASE;
         if (result.structSize < sizeof(result) || result.stage < HIGGS_ACTION_COMMITTED ||
             result.stage > HIGGS_ACTION_CANCELLED || (result.receiptFlags & ~7u))
             return HIGGS_HAND_INVALID_ARGUMENT;
@@ -802,8 +1361,18 @@ void Broker::ObserveWorld(uintptr_t world, bool loading, Clock now)
     std::lock_guard dispatch(dispatch_);
     {
         std::lock_guard lock(mutex_);
-        if (world_ == world && loading_ == loading)
+        if (world_ == world && loading_ == loading && !worldChangePending_ && !forceWorldReset_)
             return;
+        for (const auto &action : actions_)
+            if (action.nativeStarted)
+            {
+                worldChangePending_ = true;
+                pendingWorld_ = world;
+                pendingWorldLoading_ = loading;
+                pendingWorldAt_ = now;
+                return;
+            }
+        forceWorldReset_ = false;
         world_ = world;
         loading_ = loading;
         const auto epoch = snapshot_.epoch + 1, generation = snapshot_.generation + 1;
@@ -844,6 +1413,129 @@ uint64_t Broker::HandGeneration(uint32_t hand) const
     std::lock_guard lock(mutex_);
     return snapshot_.hands[hand == HIGGS_HAND_LEFT ? 0 : 1].generation;
 }
+void Broker::ObserveSecondaryEpisode(uint32_t hand, uint64_t episode)
+{
+    if (hand != HIGGS_HAND_LEFT && hand != HIGGS_HAND_RIGHT)
+        return;
+    auto phase = NativePhase();
+    std::lock_guard lock(mutex_);
+    const auto index = hand == HIGGS_HAND_LEFT ? 0 : 1;
+    if (secondaryEpisodes_[index] != episode)
+    {
+        secondaryEpisodes_[index] = episode;
+        snapshot_.hands[index].generation = nextToken_++;
+    }
+}
+uint64_t Broker::SecondaryEpisode(uint32_t hand) const
+{
+    std::lock_guard lock(mutex_);
+    return secondaryEpisodes_[hand == HIGGS_HAND_LEFT ? 0 : 1];
+}
+HIGGS_HandSnapshot Broker::CopyPublished() const
+{
+    std::lock_guard lock(mutex_);
+    return snapshot_;
+}
+bool Broker::MutationAdmissionReady()
+{
+    std::lock_guard lock(mutex_);
+    return snapshot_.worldReady && !worldChangePending_;
+}
+void Broker::ApplyDeferredWorld()
+{
+    auto phase = NativePhase();
+    uintptr_t world = 0;
+    bool loading = false;
+    Clock at = 0;
+    {
+        std::lock_guard lock(mutex_);
+        if (!worldChangePending_)
+            return;
+        for (const auto &action : actions_)
+            if (action.nativeStarted)
+                return;
+        world = pendingWorld_;
+        loading = pendingWorldLoading_;
+        at = pendingWorldAt_;
+        worldChangePending_ = false;
+        forceWorldReset_ = true;
+    }
+    ObserveWorld(world, loading, at);
+}
+void Broker::MarkMainThread()
+{
+    std::lock_guard lock(mutex_);
+    mainThread_ = std::this_thread::get_id();
+}
+HIGGS_HandStatus Broker::WithAuthorizedAction(uint64_t owner, const HIGGS_GrantedMutationRequest &r,
+                                              HIGGS_GrantedMutationCallback callback, void *context,
+                                              HIGGS_ActionResult &output)
+{
+    if (r.structSize < sizeof(r) || !callback ||
+        (r.commitStage != HIGGS_ACTION_COMMITTED && r.commitStage != HIGGS_ACTION_COMPLETED))
+        return HIGGS_HAND_INVALID_ARGUMENT;
+    auto phase = NativePhase();
+    DeferredWorldDrain deferredWorldDrain{*this};
+    HIGGS_ActionRequest request{};
+    HIGGS_HandSnapshot snapshot{};
+    {
+        std::lock_guard lock(mutex_);
+        ExpireLocked(Now());
+        if (!ClientLocked(owner))
+            return HIGGS_HAND_INVALID_CLIENT;
+        if (worldChangePending_)
+            return HIGGS_HAND_NOT_READY;
+        if (mainThread_ == std::thread::id{} || mainThread_ != std::this_thread::get_id())
+            return HIGGS_HAND_WRONG_PHASE;
+        auto a = ActionLocked(r.requestId);
+        if (!a)
+            return HIGGS_HAND_NOT_FOUND;
+        if (a->request.owner != owner || a->request.executor != r.executor)
+            return HIGGS_HAND_WRONG_OWNER;
+        if (a->domainOwned || a->nativeStarted || !a->selected || a->result.stage >= HIGGS_ACTION_COMPLETED ||
+            a->recognition.stage == HIGGS_RECOGNITION_WAITING)
+            return HIGGS_HAND_WRONG_PHASE;
+        if (r.epoch != snapshot_.epoch || a->request.epoch != r.epoch || r.grant != a->request.grant)
+            return HIGGS_HAND_STALE;
+        auto executor = RegistrationLocked(r.executor);
+        if (!executor || !executor->active)
+            return HIGGS_HAND_NOT_FOUND;
+        for (const auto &hand : snapshot_.hands)
+            if (hand.physicalHand & a->request.physicalHands)
+                if (hand.grant != r.grant || hand.owner != owner)
+                    return HIGGS_HAND_STALE;
+        a->nativeStarted = true;
+        request = a->request;
+        snapshot = snapshot_;
+    }
+    HIGGS_HandStatus status = HIGGS_HAND_INTERNAL_ERROR;
+    {
+        CallbackScope scope(this, owner);
+        try
+        {
+            status = callback(&request, &snapshot, context);
+        }
+        catch (...)
+        {
+        }
+    }
+    {
+        std::lock_guard lock(mutex_);
+        auto a = ActionLocked(r.requestId);
+        if (!a)
+            return HIGGS_HAND_INTERNAL_ERROR;
+        if (status == HIGGS_HAND_OK)
+        {
+            FinishLocked(*a, r.commitStage, 0);
+            output = a->result;
+        }
+        a->nativeStarted = false;
+        ExpireLocked(Now());
+    }
+    ApplyDeferredWorld();
+    FlushEvents();
+    return status;
+}
 std::unique_lock<std::recursive_mutex> Broker::NativePhase()
 {
     return std::unique_lock<std::recursive_mutex>(dispatch_);
@@ -862,6 +1554,8 @@ void Broker::BeginHandMutation(Clock now)
 }
 void Broker::EndHandMutation(uint32_t hand, uint32_t held, bool known, bool secondary, Clock now)
 {
+    auto phase = NativePhase();
+    DeferredWorldDrain deferredWorldDrain{*this};
     std::lock_guard lock(mutex_);
     for (auto &a : actions_)
         if (a.physical.physicalHand == hand && a.nativeStarted)
@@ -900,6 +1594,7 @@ void Broker::Publish(const std::array<HIGGS_HandRecord, 2> &records, Clock now)
         for (size_t i = 0; i < 2; ++i)
         {
             auto h = records[i];
+            nativeUnavailableReasons_[i] = h.unavailableReasons;
             h.physicalHand = i == 0 ? HIGGS_HAND_LEFT : HIGGS_HAND_RIGHT;
             const auto &p = previous[i];
             const bool changed = p.heldRefId != h.heldRefId || p.equippedFormId != h.equippedFormId ||
@@ -913,17 +1608,6 @@ void Broker::Publish(const std::array<HIGGS_HandRecord, 2> &records, Clock now)
                 h.poseObservedAtNs = now;
             }
             snapshot_.hands[i] = h;
-            if (p.heldRefId != h.heldRefId)
-            {
-                if (p.heldRefId)
-                    QueueEventLocked(HIGGS_EVENT_RELEASED, h.physicalHand, p.heldRefId, now, &h);
-                if (h.heldRefId)
-                    QueueEventLocked(HIGGS_EVENT_GRABBED, h.physicalHand, h.heldRefId, now, &h);
-            }
-            if ((p.observationMask ^ h.observationMask) & HIGGS_OBS_SECONDARY_SUPPORT)
-                QueueEventLocked((h.observationMask & HIGGS_OBS_SECONDARY_SUPPORT) ? HIGGS_EVENT_SECONDARY_STARTED
-                                                                                   : HIGGS_EVENT_SECONDARY_ENDED,
-                                 h.physicalHand, h.equippedFormId, now, &h);
             if (!(h.observationMask & HIGGS_OBS_TRACKING_VALID))
                 for (auto &a : actions_)
                     if (a.grantActive && (a.request.physicalHands & h.physicalHand))
@@ -952,6 +1636,22 @@ void Broker::Publish(const std::array<HIGGS_HandRecord, 2> &records, Clock now)
                 }
             }
         RefreshLocked();
+        for (size_t i = 0; i < 2; ++i)
+        {
+            const auto &h = snapshot_.hands[i];
+            const auto &p = previous[i];
+            if (p.heldRefId != h.heldRefId)
+            {
+                if (p.heldRefId)
+                    QueueEventLocked(HIGGS_EVENT_RELEASED, h.physicalHand, p.heldRefId, now, &h);
+                if (h.heldRefId)
+                    QueueEventLocked(HIGGS_EVENT_GRABBED, h.physicalHand, h.heldRefId, now, &h);
+            }
+            if ((p.observationMask ^ h.observationMask) & HIGGS_OBS_SECONDARY_SUPPORT)
+                QueueEventLocked((h.observationMask & HIGGS_OBS_SECONDARY_SUPPORT) ? HIGGS_EVENT_SECONDARY_STARTED
+                                                                                   : HIGGS_EVENT_SECONDARY_ENDED,
+                                 h.physicalHand, h.equippedFormId, now, &h);
+        }
     }
     FlushEvents();
 }
@@ -960,6 +1660,8 @@ HIGGS_HandStatus Broker::Physical(uint64_t owner, const HIGGS_PhysicalRequest &p
     std::lock_guard lock(mutex_);
     if (!ClientLocked(owner))
         return HIGGS_HAND_INVALID_CLIENT;
+    if (worldChangePending_)
+        return HIGGS_HAND_NOT_READY;
     if (p.structSize < sizeof(p) || !Hand(p.physicalHand) || p.reserved || !p.timeoutMs || p.timeoutMs > 60000 ||
         (!p.itemRefId && p.kind == HIGGS_PHYSICAL_GRAB))
         return HIGGS_HAND_INVALID_ARGUMENT;
@@ -977,9 +1679,15 @@ HIGGS_HandStatus Broker::Physical(uint64_t owner, const HIGGS_PhysicalRequest &p
         return HIGGS_HAND_CONFLICT;
     if (p.grant && (!h.grant || h.owner != owner))
         return HIGGS_HAND_WRONG_OWNER;
+    if (p.grant && !GrantReadyLocked(owner, p.grant))
+        return HIGGS_HAND_WRONG_PHASE;
     if ((p.kind == HIGGS_PHYSICAL_GRAB || p.kind == HIGGS_PHYSICAL_SECONDARY_SUPPORT) &&
         (h.heldRefId || (h.observationMask & HIGGS_OBS_SECONDARY_SUPPORT)))
         return HIGGS_HAND_CONFLICT;
+    for (const auto &pending : actions_)
+        if (pending.physical.kind && pending.physical.physicalHand == p.physicalHand &&
+            pending.result.stage < HIGGS_ACTION_COMPLETED)
+            return HIGGS_HAND_CONFLICT;
     for (const auto &operation : actions_)
         if (operation.operationActive && operation.operation.operation.physicalHand == p.physicalHand &&
             (operation.operation.operation.kind == HIGGS_OP_WORLD_SUPPORT ||
@@ -1013,6 +1721,7 @@ HIGGS_HandStatus Broker::Physical(uint64_t owner, const HIGGS_PhysicalRequest &p
 void Broker::DrainPhysical(PhysicalDispatch dispatch, void *context, Clock now)
 {
     std::lock_guard serial(dispatch_);
+    DeferredWorldDrain deferredWorldDrain{*this};
     std::vector<std::pair<uint64_t, HIGGS_PhysicalRequest>> work;
     {
         std::lock_guard lock(mutex_);
@@ -1043,8 +1752,9 @@ void Broker::DrainPhysical(PhysicalDispatch dispatch, void *context, Clock now)
             if (!a || Terminal(a->result.stage))
                 continue;
             const auto &h = snapshot_.hands[a->physical.physicalHand == HIGGS_HAND_LEFT ? 0 : 1];
-            if (a->request.epoch != snapshot_.epoch || h.generation != a->physical.handGeneration ||
-                h.grant != a->request.grant || h.owner != a->request.owner)
+            if (worldChangePending_ || a->request.epoch != snapshot_.epoch ||
+                h.generation != a->physical.handGeneration || h.grant != a->request.grant ||
+                h.owner != a->request.owner)
             {
                 a->grantActive = false;
                 FinishLocked(*a, HIGGS_ACTION_CANCELLED, HIGGS_HAND_STALE);
@@ -1076,6 +1786,7 @@ void Broker::DrainPhysical(PhysicalDispatch dispatch, void *context, Clock now)
             }
         }
     }
+    ApplyDeferredWorld();
     FlushEvents();
 }
 void Broker::SemanticEvent(uint32_t type, uint32_t hand, uint32_t ref, Clock now)
@@ -1137,6 +1848,8 @@ HIGGS_HandStatus Broker::Operation(uint64_t owner, const HIGGS_HandOperation &p,
     std::lock_guard lock(mutex_);
     if (!ClientLocked(owner))
         return HIGGS_HAND_INVALID_CLIENT;
+    if (worldChangePending_)
+        return HIGGS_HAND_NOT_READY;
     if (p.structSize < sizeof(p) || !Hand(p.physicalHand) || p.reserved || p.reserved2 || !p.durationMs ||
         p.durationMs > 60000)
         return HIGGS_HAND_INVALID_ARGUMENT;
@@ -1198,14 +1911,23 @@ HIGGS_HandStatus Broker::Operation(uint64_t owner, const HIGGS_HandOperation &p,
         return HIGGS_HAND_CONFLICT;
     if (p.grant && (!h.grant || h.owner != owner))
         return HIGGS_HAND_WRONG_OWNER;
+    if (p.grant && !GrantReadyLocked(owner, p.grant))
+        return HIGGS_HAND_WRONG_PHASE;
     if ((p.kind == HIGGS_OP_WORLD_SUPPORT || p.kind == HIGGS_OP_PHYSICAL_HAND_TARGET ||
          p.kind == HIGGS_OP_HAND_GEOMETRY) &&
         (h.heldRefId || h.equippedFormId || (h.observationMask & HIGGS_OBS_SECONDARY_SUPPORT)))
         return HIGGS_HAND_CONFLICT;
     for (const auto &pending : actions_)
+        if (pending.ownedActuator && (pending.request.physicalHands & p.physicalHand) &&
+            (p.kind == HIGGS_OP_WORLD_SUPPORT || p.kind == HIGGS_OP_PHYSICAL_HAND_TARGET ||
+             p.kind == HIGGS_OP_HAND_GEOMETRY))
+            return HIGGS_HAND_CONFLICT;
+    for (const auto &pending : actions_)
         if (pending.physical.kind && pending.physical.physicalHand == p.physicalHand && !Terminal(pending.result.stage))
             return HIGGS_HAND_CONFLICT;
-    if ((p.kind == HIGGS_OP_GRIP_TRANSFORM || p.kind == HIGGS_OP_DRIVE_CAP) &&
+    const bool secondaryGrip = p.kind == HIGGS_OP_GRIP_TRANSFORM && (h.observationMask & HIGGS_OBS_SECONDARY_SUPPORT) &&
+                               !h.heldRefId && p.grant && p.itemRefId;
+    if ((p.kind == HIGGS_OP_GRIP_TRANSFORM || p.kind == HIGGS_OP_DRIVE_CAP) && !secondaryGrip &&
         (!h.heldRefId || h.heldRefId != p.itemRefId))
         return HIGGS_HAND_CONFLICT;
     for (const auto &a : actions_)
@@ -1245,7 +1967,7 @@ bool Broker::OperationActive(uint64_t id, Clock now)
     std::lock_guard lock(mutex_);
     ExpireLocked(now);
     auto a = ActionLocked(id);
-    if (!a || !a->operationActive || a->request.epoch != snapshot_.epoch)
+    if (!a || !a->operationActive || a->request.epoch != snapshot_.epoch || (worldChangePending_ && !a->nativeStarted))
         return false;
     const auto &h = snapshot_.hands[a->operation.operation.physicalHand == HIGGS_HAND_LEFT ? 0 : 1];
     const bool active = h.grant == a->request.grant && h.owner == a->request.owner &&
@@ -1349,6 +2071,7 @@ void Broker::BreakOperation(uint64_t id, uint32_t reason)
 void Broker::DrainOperations(OperationDispatch dispatch, void *context, Clock now)
 {
     std::lock_guard serial(dispatch_);
+    DeferredWorldDrain deferredWorldDrain{*this};
     std::vector<HIGGS_HandOperationState> work;
     {
         std::lock_guard lock(mutex_);
@@ -1400,6 +2123,7 @@ void Broker::DrainOperations(OperationDispatch dispatch, void *context, Clock no
             }
         }
     }
+    ApplyDeferredWorld();
     FlushEvents();
 }
 namespace
