@@ -10,6 +10,6 @@ Every successful Resize advances the footprint revision, even a same-footprint r
 
 An executor receives its initial notification once. Resizing before that notification updates the footprint it receives; later changes are observed through Copy. This is deliberately not a stream of synthetic controller events, another executor notification or transferable authority. Existing action receipts remain correlated to the original request.
 
-Nonbutton HandUse admission still occurs immediately in call order. Resize does not add a priority-based collection round for simultaneous contact, dwell or posture proposals. Domain gameplay and which hands to request remain consumer decisions.
+Legacy HandUse admission is immediate; the separate [proposal table](hand-use-proposals.md) now adds a priority-based collection round for competing contact, dwell or posture opportunities. Resize itself changes an already acquired session and does not preempt existing use. Domain gameplay and which hands to request remain consumer decisions.
 
 The production authority fixture exercises growth/shrink, exact retained grant, competing ownership, stale generations/revisions, retained actuator cleanup, UI renewal/reduction, concurrent CAS and load invalidation. The C consumer pins record sizes and the isolated DLL probe negotiates the new export. Run `python tests/run_hand_tests.py --build-dir <external-directory>`. Full plugin compilation and game qualification are separate evidence.

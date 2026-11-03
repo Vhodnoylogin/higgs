@@ -6,6 +6,7 @@
 #include "higgshandoperations.h"
 #include "higgshanduse.h"
 #include "higgshandusetransition.h"
+#include "higgshanduseproposals.h"
 #include "higgstransactions.h"
 #include <array>
 #include <condition_variable>
@@ -88,6 +89,9 @@ class Broker
     HIGGS_HandStatus CopyHandUseTransition(uint64_t, uint64_t, HIGGS_HandUseTransitionState &, uint64_t);
     HIGGS_HandStatus ResizeHandUse(uint64_t, const HIGGS_HandUseTransitionRequest &, HIGGS_HandUseTransitionState &, uint64_t);
     void DrainHandUses();
+    HIGGS_HandStatus ProposeHandUse(uint64_t, const HIGGS_HandUseProposalRequest &, uint64_t &, Clock);
+    HIGGS_HandStatus CopyHandUseProposal(uint64_t, uint64_t, HIGGS_HandUseProposalState &, Clock);
+    HIGGS_HandStatus CancelHandUseProposal(uint64_t, uint64_t, uint64_t);
     bool PhysicalPending(uint32_t hand, Clock);
     uint64_t Epoch() const;
     uint64_t HandGeneration(uint32_t hand) const;
@@ -165,6 +169,10 @@ class Broker
         uint64_t dependencyGrant = 0;
         uint32_t dependencyHands = 0;
         bool sessionNotified = false;
+        HIGGS_HandUseProposalRequest useProposal{};
+        uint64_t proposalRound = 0;
+        int32_t proposalPriority = 0;
+        uint32_t proposalDecisionFlags = 0;
     };
     HIGGS_HandStatus Add(HIGGS_HandClient, uint32_t, HIGGS_RecognizerCallback, HIGGS_ExecutorCallback,
                          HIGGS_HandEventCallback, void *, uint64_t &);
@@ -173,6 +181,7 @@ class Broker
     Action *ActionLocked(uint64_t);
     Action *NewActionLocked();
     void ExpireLocked(Clock);
+    void ResolveHandUseProposalsLocked(Clock);
     bool EligibleLocked(uint32_t hands) const;
     bool GrantReadyLocked(uint64_t owner, uint64_t grant) const;
     bool InputEligibleLocked(uint32_t hands, uint64_t executorOwner, uint64_t parentGrant,
@@ -221,6 +230,8 @@ class Broker
     std::thread::id mainThread_{};
     bool down_[2][kInputControlSlots]{}, consumed_[2][kInputControlSlots]{};
     uint64_t nextToken_ = 1, nextInput_ = 1, nextObservation_ = 1, nextEvent_ = 1;
+    uint64_t nextUseRound_ = 1;
+    bool drainingHandUses_ = false; // serialized by dispatch_, including callback reentry
 };
 Broker &Service();
 Clock Now();

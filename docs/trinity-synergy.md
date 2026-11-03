@@ -1,5 +1,7 @@
 # HIGGS architecture for VRIK HIGGS and PLANCK synergy
 
+The additive [nonbutton proposal service](hand-use-proposals.md) now collects contact/dwell/posture opportunities into user-priority main-maintenance rounds. Pending proposals carry no authority; disjoint accepted proposals become ordinary HandUse sessions. Existing use is never preempted, and consumers must still adopt the service.
+
 The proposed synergy gives Skyrim VR mods a shared foundation with clear owners. HIGGS owns all hand states, hand-use mechanisms, grip/trigger input and physical possession. Body Slots owns all slot mechanics, including spatial zones, runtime binding and interaction. VRIK owns body and virtual hand poses; PLANCK owns NPC physical animation, ragdoll lifetime and physical-hit processing; PPB supplies anatomical evidence. Consumers keep their gameplay, inventory-selection and equipment-proxy rules.
 
 **Body Slots** owns creation, configuration, body/equipment binding, geometry, detection, activation and presentation. [Morphbench](https://github.com/Vhodnoylogin/morphbench) supplies offline authoring; VRIK supplies body/virtual-hand observations. Native14 compatibility is separate. Actual implementation and remaining gaps are distinguished in the [implementation ledger](https://github.com/Vhodnoylogin/body-pouches/blob/main/docs/trinity-synergy/implementation-status.md).

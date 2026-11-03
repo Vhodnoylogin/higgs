@@ -198,6 +198,7 @@
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="src\hand_sessions.cpp"><Filter>src</Filter></ClCompile>
+    <ClCompile Include="src\hand_use_proposals.cpp"><Filter>src</Filter></ClCompile>
     <ClCompile Include="src\haptic_schedule.cpp"><Filter>src</Filter></ClCompile>
     <ClInclude Include="include\higgshanduse.h"><Filter>include</Filter></ClInclude>
     <ClInclude Include="include\higgshaptics.h"><Filter>include</Filter></ClInclude>
@@ -216,6 +217,7 @@
     <ClInclude Include="include\hand_input_extended.h"><Filter>Header</Filter></ClInclude>
     <ClInclude Include="include\higgsinputcontext.h"><Filter>Header</Filter></ClInclude>
     <ClInclude Include="include\higgshandusetransition.h"><Filter>Header</Filter></ClInclude>
+    <ClInclude Include="include\higgshanduseproposals.h"><Filter>Header</Filter></ClInclude>
     <ClInclude Include="include\higgssupport.h"><Filter>Header</Filter></ClInclude>
     <ClInclude Include="include\hand_support.h"><Filter>Header</Filter></ClInclude>
     <ClInclude Include="include\higgshandparts.h"><Filter>Header</Filter></ClInclude>

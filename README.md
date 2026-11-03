@@ -1,5 +1,7 @@
 # HIGGS ([Nexus link](https://www.nexusmods.com/skyrimspecialedition/mods/43930))
 
+The additive [nonbutton hand-use proposals](docs/hand-use-proposals.md) collect contact, dwell and posture opportunities into a main-maintenance priority round. Disjoint winners receive ordinary hand-use grants; pending proposals have no authority, and existing uses are never preempted.
+
 The additive [own-item cosmetic contact service](docs/own-item-contacts.md) supplies HIGGS-owned bilateral item identities, explicit collider/UID provenance, bounded policies and paired contact-point evidence forwarded by PLANCK. It preserves existing combat/solver behavior; audio and haptic presentation remain a consumer responsibility and have not been qualified in game.
 
 The additive [controller menu-context service](docs/input-context.md) hands fresh controls to supported UI, drains held sequences across entry/exit without replay, and preserves existing physical use and committed receipt/recovery paths. It does not infer engine pause or change official001.

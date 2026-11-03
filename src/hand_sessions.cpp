@@ -20,6 +20,11 @@ HIGGS_HandStatus Broker::HandUse(uint64_t owner, const HIGGS_HandUseRequest &r, 
         return HIGGS_HAND_WRONG_OWNER;
     if (!EligibleLocked(r.physicalHands))
         return HIGGS_HAND_CONFLICT;
+    // A late immediate request must not jump an already collecting proposal round.
+    for (const auto &pending : actions_)
+        if (pending.useProposal.structSize && !pending.result.stage &&
+            (pending.request.physicalHands & r.physicalHands))
+            return HIGGS_HAND_CONFLICT;
     auto action = NewActionLocked();
     if (!action)
         return HIGGS_HAND_CAPACITY;
@@ -109,6 +114,12 @@ HIGGS_HandStatus Broker::EndHandUse(uint64_t owner, uint64_t id, uint64_t epoch)
 void Broker::DrainHandUses()
 {
     auto phase = NativePhase();
+    if (drainingHandUses_) return;
+    struct DrainScope {
+        bool &active;
+        explicit DrainScope(bool &value) : active(value) { active = true; }
+        ~DrainScope() { active = false; }
+    } draining(drainingHandUses_);
     if (!GameplayContext())
         return;
     std::array<HIGGS_ActionRequest, 256> work{};
@@ -116,6 +127,7 @@ void Broker::DrainHandUses()
     {
         std::lock_guard lock(mutex_);
         ExpireLocked(Now());
+        ResolveHandUseProposalsLocked(Now());
         for (auto &a : actions_)
             if (a.sessionKind && a.grantActive && !a.sessionNotified)
             {
@@ -127,6 +139,9 @@ void Broker::DrainHandUses()
         std::shared_ptr<Registration> executor;
         {
             std::lock_guard lock(mutex_);
+            // A previous executor may have taken long enough for another lease
+            // to expire. Do not notify it with authority that is already stale.
+            ExpireLocked(Now());
             auto a = ActionLocked(work[i].requestId);
             if (contextMenus_ || !a || a->sessionNotified || !a->grantActive || a->result.stage >= HIGGS_ACTION_COMPLETED)
                 continue;
@@ -136,6 +151,7 @@ void Broker::DrainHandUses()
         }
         InvokeSessionExecutor(executor, work[i]);
     }
+    FlushEvents();
 }
 HIGGS_HandStatus Broker::CopyHandUseTransition(uint64_t owner, uint64_t id,
                                                HIGGS_HandUseTransitionState &out, uint64_t now)

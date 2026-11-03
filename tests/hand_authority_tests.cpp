@@ -406,8 +406,13 @@ void HapticOwnership()
     std::puts(
         "PASS coordinated priority/commutative haptics, owned context replacement, duplicate submission and lifecycle");
 }
+#include "hand_use_proposal_cases.h"
 int main()
 {
+    ProposalPriorityRounds();
+    ProposalLifetimes();
+    ProposalReentrancy();
+    ProposalNotificationExpiry();
     SessionOwnership();
     SessionTransitions();
     SessionTransitionRace();

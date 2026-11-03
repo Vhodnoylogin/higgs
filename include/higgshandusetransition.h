@@ -33,7 +33,8 @@ typedef struct HIGGS_HandUseTransitionInterface {
  * and await its actual drainage first. Refusal leaves existing authority intact.
  * Existing held items are never implicitly released. UI permits renew/reduction,
  * but not expansion. Expiry/load/tracking loss cannot be revived by Resize.
- * This is not nonbutton proposal arbitration or a transferable/delegated grant.
+ * Separate HandUseProposals supplies nonbutton admission rounds. Resize is not
+ * proposal arbitration or a transferable/delegated grant.
  * Exact v1 copied POD, ordinary client/output rules. Capability bit0: resize. */
 HIGGS_HandStatus HIGGS_HAND_CALL HIGGS_QueryHandUseTransitionInterface(uint32_t,uint32_t,HIGGS_HandUseTransitionInterface*);
 typedef HIGGS_HandStatus (HIGGS_HAND_CALL *HIGGS_QueryHandUseTransitionInterfaceFn)(uint32_t,uint32_t,HIGGS_HandUseTransitionInterface*);
