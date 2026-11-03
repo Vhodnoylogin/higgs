@@ -35,6 +35,7 @@ set(HIGGS_SERVICE_HEADERS
     "${HIGGS_SERVICE_ROOT}/include/higgshandrouting.h"
     "${HIGGS_SERVICE_ROOT}/include/higgshandoperations.h"
     "${HIGGS_SERVICE_ROOT}/include/higgsgrantmutation.h"
+    "${HIGGS_SERVICE_ROOT}/include/higgsauthorizeddispatch.h"
     "${HIGGS_SERVICE_ROOT}/include/higgshanduse.h"
     "${HIGGS_SERVICE_ROOT}/include/higgshandusetransition.h"
     "${HIGGS_SERVICE_ROOT}/include/higgshanduseproposals.h"

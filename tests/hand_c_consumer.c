@@ -1,4 +1,5 @@
 #include "higgsgrantmutation.h"
+#include "higgsauthorizeddispatch.h"
 #include "higgshandapi.h"
 #include "higgshandoperations.h"
 #include "higgshandrouting.h"
@@ -34,12 +35,22 @@ _Static_assert(sizeof(HIGGS_TransferRequest) == 160, "transfer request ABI");
 _Static_assert(sizeof(HIGGS_TransferState) == 312, "transfer state ABI");
 _Static_assert(sizeof(HIGGS_TransferReceipt) == 288, "transfer receipt ABI");
 _Static_assert(sizeof(HIGGS_GrantMutationInterface) == 16, "mutation table ABI");
+_Static_assert(sizeof(HIGGS_AuthorizedDispatchRequest) == 40, "authorized dispatch request ABI");
+_Static_assert(offsetof(HIGGS_AuthorizedDispatchRequest, grant) == 32, "authorized dispatch grant offset");
+_Static_assert(sizeof(HIGGS_AuthorizedDispatchInterface) == 16, "authorized dispatch table ABI");
 _Static_assert(sizeof(HIGGS_SupportInterface) == 48, "support table ABI");
 _Static_assert(sizeof(HIGGS_SupportRequest) == 168, "support request ABI");
 _Static_assert(sizeof(HIGGS_SupportState) == 336, "support state ABI");
 _Static_assert(sizeof(HIGGS_SupportUpdate) == 72, "support update ABI");
 int hand_c_consumer(void)
 {
+    HIGGS_AuthorizedDispatchInterface dispatch = {0}, untouched = {0};
+    if (HIGGS_QueryAuthorizedDispatchInterface(1, sizeof(dispatch), &dispatch) || !dispatch.Invoke ||
+        dispatch.structSize != sizeof(dispatch) || dispatch.abiVersion != 1 ||
+        HIGGS_QueryAuthorizedDispatchInterface(2, sizeof(untouched), &untouched) != HIGGS_HAND_UNSUPPORTED_VERSION ||
+        HIGGS_QueryAuthorizedDispatchInterface(1, sizeof(untouched)-1, &untouched) != HIGGS_HAND_BUFFER_TOO_SMALL ||
+        untouched.structSize || untouched.Invoke ||
+        dispatch.Invoke(0, NULL, NULL, NULL) != HIGGS_HAND_INVALID_ARGUMENT) return 6;
     const HIGGS_NativeRegionsInterface* regions=HIGGS_QueryNativeRegionsInterface(1,sizeof(HIGGS_NativeRegionsInterface));
     if (!regions || !regions->RegisterDetector || !regions->CopyFrame ||
         HIGGS_QueryNativeRegionsInterface(2,sizeof(*regions)) || HIGGS_QueryNativeRegionsInterface(1,sizeof(*regions)-1)) return 5;

@@ -32,6 +32,8 @@ The additive [read-only velocity ABI](docs/velocity-observation.md) copies that 
 
 The additive [hand services](docs/hand-broker.md) supply coherent occupancy/availability, common controller observations and arbitration, deferred hold/multi-tap recognition, end-user priorities, owned sessions/grants, executor routing and fenced commits. Typed transactions preserve original/proxy/display identities and separate inventory, equipment, physical grip and compensation facts. Finite native paths cover static and moving world support, PLANCK-leased NPC endpoints, owned held-item constraints, physical hand targets, existing secondary support, grip transforms, motor caps, box hand geometry and coordinated haptics. [Motion/contact/release observations](docs/hand-observations.md) preserve source and continuity identities. Production-core/C/DLL checks, actual-source synthetic fixtures and native compilation provide distinct evidence; none establishes running-game collision response, hardware delivery or author agreement. No live installation or game test has occurred.
 
+The independent [authorized deferred-dispatch table](docs/authorized-dispatch.md) invokes a selected executor's deferred callback once under current hand authority in the main-maintenance phase. Invocation supplies no automatic gameplay receipt; consumers retain the existing physical/transaction and factual result paths.
+
 This mod is complicated.
 
 The optional [Body Slots spatial adapter](docs/native-regions.md) exports actual native mouth/shoulder source samples and accepts one spatial-only detector. HIGGS preserves standalone fallback and its single consume/stash/drop executor, including current hand-authority checks before effects.

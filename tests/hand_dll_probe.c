@@ -1,4 +1,5 @@
 #include "higgsgrantmutation.h"
+#include "higgsauthorizeddispatch.h"
 #include "higgshandapi.h"
 #include "higgshandoperations.h"
 #include "higgshandrouting.h"
@@ -55,6 +56,7 @@ int main(int argc, char **argv)
     } while (0)
     CHECK_TABLE("HIGGS_QueryTransactionsInterface", HIGGS_TransactionsInterface, HIGGS_QueryTransactionsInterfaceFn);
     CHECK_TABLE("HIGGS_QueryGrantMutationInterface", HIGGS_GrantMutationInterface, HIGGS_QueryGrantMutationInterfaceFn);
+    CHECK_TABLE("HIGGS_QueryAuthorizedDispatchInterface", HIGGS_AuthorizedDispatchInterface, HIGGS_QueryAuthorizedDispatchInterfaceFn);
     CHECK_TABLE("HIGGS_QueryHandUseInterface", HIGGS_HandUseInterface, HIGGS_QueryHandUseInterfaceFn);
     CHECK_TABLE("HIGGS_QueryHandUseTransitionInterface", HIGGS_HandUseTransitionInterface, HIGGS_QueryHandUseTransitionInterfaceFn);
     CHECK_TABLE("HIGGS_QueryHandUseProposalsInterface", HIGGS_HandUseProposalsInterface, HIGGS_QueryHandUseProposalsInterfaceFn);

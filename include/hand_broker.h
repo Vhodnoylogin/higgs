@@ -2,6 +2,7 @@
 #include "hand_input_extended.h"
 #include "higgsinputcontext.h"
 #include "higgsgrantmutation.h"
+#include "higgsauthorizeddispatch.h"
 #include "higgshandapi.h"
 #include "higgshandoperations.h"
 #include "higgshanduse.h"
@@ -109,6 +110,8 @@ class Broker
     void MarkMainThread();
     HIGGS_HandStatus WithAuthorizedAction(uint64_t, const HIGGS_GrantedMutationRequest &, HIGGS_GrantedMutationCallback,
                                           void *, HIGGS_ActionResult &);
+    HIGGS_HandStatus InvokeAuthorized(uint64_t, const HIGGS_AuthorizedDispatchRequest &,
+                                      HIGGS_AuthorizedDispatchCallback, void *);
     std::unique_lock<std::recursive_mutex> NativePhase();
     void BeginHandMutation(Clock);
     void EndHandMutation(uint32_t hand, uint32_t heldRef, bool heldKnown, bool secondary, Clock);
@@ -160,6 +163,7 @@ class Broker
         HIGGS_HandOperationState operation{};
         bool operationActive = false;
         bool nativeStarted = false;
+        bool authorizedDispatchClaimed = false;
         bool retained = false;
         bool domainOwned = false;
         uint32_t ownedActuator = 0;

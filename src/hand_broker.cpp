@@ -1604,6 +1604,80 @@ HIGGS_HandStatus Broker::WithAuthorizedAction(uint64_t owner, const HIGGS_Grante
     FlushEvents();
     return status;
 }
+HIGGS_HandStatus Broker::InvokeAuthorized(uint64_t owner, const HIGGS_AuthorizedDispatchRequest &r,
+                                         HIGGS_AuthorizedDispatchCallback callback, void *context)
+{
+    if (r.structSize != sizeof(r) || r.reserved || !r.requestId || !r.executor || !r.epoch || !r.grant || !callback)
+        return HIGGS_HAND_INVALID_ARGUMENT;
+    // Copy before entering caller code; caller storage is never used after entry.
+    const auto invocation = r;
+    auto phase = NativePhase();
+    DeferredWorldDrain deferredWorldDrain{*this};
+    HIGGS_ActionRequest request{};
+    HIGGS_HandSnapshot snapshot{};
+    {
+        std::lock_guard lock(mutex_);
+        ExpireLocked(Now());
+        if (!ClientLocked(owner))
+            return HIGGS_HAND_INVALID_CLIENT;
+        if (mainThread_ == std::thread::id{} || mainThread_ != std::this_thread::get_id())
+            return HIGGS_HAND_WRONG_PHASE;
+        auto a = ActionLocked(invocation.requestId);
+        if (!a)
+            return HIGGS_HAND_NOT_FOUND;
+        if (a->request.owner != owner || a->request.executor != invocation.executor)
+            return HIGGS_HAND_WRONG_OWNER;
+        // A claimed invocation is never retried, even when its callback failed or
+        // a later deadline/load retired its authority. History remains bounded.
+        if (a->authorizedDispatchClaimed)
+            return HIGGS_HAND_CONFLICT;
+        if (!snapshot_.worldReady || worldChangePending_ || contextMenus_)
+            return HIGGS_HAND_NOT_READY;
+        if (a->domainOwned || a->nativeStarted || !a->selected || !a->grantActive ||
+            a->result.stage >= HIGGS_ACTION_COMPLETED || a->recognition.stage == HIGGS_RECOGNITION_WAITING)
+            return HIGGS_HAND_WRONG_PHASE;
+        if (a->request.inputId && a->result.stage < HIGGS_ACTION_COMMITTED &&
+            a->inputContextGeneration != contextGeneration_)
+            return HIGGS_HAND_STALE;
+        if (invocation.epoch != snapshot_.epoch || a->request.epoch != invocation.epoch ||
+            invocation.grant != a->request.grant)
+            return HIGGS_HAND_STALE;
+        auto executor = RegistrationLocked(invocation.executor);
+        if (!executor || !executor->active || executor->kind != 2)
+            return HIGGS_HAND_NOT_FOUND;
+        constexpr uint32_t known = HIGGS_OBS_HELD_KNOWN | HIGGS_OBS_EQUIPMENT_KNOWN |
+                                   HIGGS_OBS_PALM_VALID | HIGGS_OBS_TRACKING_VALID;
+        for (const auto &hand : snapshot_.hands)
+            if (hand.physicalHand & a->request.physicalHands)
+            {
+                if (hand.grant != invocation.grant || hand.owner != owner)
+                    return HIGGS_HAND_STALE;
+                if (hand.availability != HIGGS_AVAILABILITY_RESERVED || hand.unavailableReasons ||
+                    (hand.observationMask & known) != known || (hand.observationMask & HIGGS_OBS_SECONDARY_SUPPORT))
+                    return HIGGS_HAND_NOT_READY;
+            }
+        a->authorizedDispatchClaimed = true;
+        a->nativeStarted = true;
+        request = a->request;
+        snapshot = snapshot_;
+    }
+    HIGGS_HandStatus status = HIGGS_HAND_INTERNAL_ERROR;
+    {
+        CallbackScope scope(this, owner);
+        try { status = callback(&request, &snapshot, context); }
+        catch (...) { /* Arbitrary effects cannot be inferred or rolled back. */ }
+    }
+    {
+        std::lock_guard lock(mutex_);
+        // nativeStarted prevents eviction, revocation and deferred world reset.
+        if (auto a = ActionLocked(invocation.requestId))
+            a->nativeStarted = false;
+        ExpireLocked(Now());
+    }
+    ApplyDeferredWorld();
+    FlushEvents();
+    return status;
+}
 std::unique_lock<std::recursive_mutex> Broker::NativePhase()
 {
     return std::unique_lock<std::recursive_mutex>(dispatch_);

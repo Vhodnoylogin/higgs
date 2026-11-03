@@ -218,6 +218,13 @@ HIGGS_HandStatus HIGGS_HAND_CALL Authorized(uint64_t owner, const HIGGS_GrantedM
         return result;
     });
 }
+HIGGS_HandStatus HIGGS_HAND_CALL InvokeAuthorized(uint64_t owner, const HIGGS_AuthorizedDispatchRequest *r,
+                                                 HIGGS_AuthorizedDispatchCallback callback, void *context)
+{
+    if (!r || r->structSize != sizeof(*r))
+        return HIGGS_HAND_INVALID_ARGUMENT;
+    return Guard([&] { return Service().InvokeAuthorized(owner, *r, callback, context); });
+}
 } // namespace
 extern "C" HIGGS_HandStatus HIGGS_HAND_CALL HIGGS_QueryHandRoutingInterface(uint32_t version, uint32_t bytes,
                                                                             HIGGS_HandRoutingInterface *out)
@@ -264,6 +271,19 @@ extern "C" HIGGS_HandStatus HIGGS_HAND_CALL HIGGS_QueryGrantMutationInterface(ui
     if (bytes < sizeof(*out))
         return HIGGS_HAND_BUFFER_TOO_SMALL;
     const HIGGS_GrantMutationInterface table{sizeof(table), 1, Authorized};
+    std::memcpy(out, &table, sizeof(table));
+    return HIGGS_HAND_OK;
+}
+extern "C" HIGGS_HandStatus HIGGS_HAND_CALL HIGGS_QueryAuthorizedDispatchInterface(
+    uint32_t version, uint32_t bytes, HIGGS_AuthorizedDispatchInterface *out)
+{
+    if (version != HIGGS_AUTHORIZED_DISPATCH_ABI_VERSION)
+        return HIGGS_HAND_UNSUPPORTED_VERSION;
+    if (!out)
+        return HIGGS_HAND_INVALID_ARGUMENT;
+    if (bytes < sizeof(*out))
+        return HIGGS_HAND_BUFFER_TOO_SMALL;
+    const HIGGS_AuthorizedDispatchInterface table{sizeof(table), HIGGS_AUTHORIZED_DISPATCH_ABI_VERSION, InvokeAuthorized};
     std::memcpy(out, &table, sizeof(table));
     return HIGGS_HAND_OK;
 }

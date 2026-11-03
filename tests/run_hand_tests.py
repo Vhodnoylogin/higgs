@@ -19,7 +19,8 @@ ROOT = Path(__file__).resolve().parents[1]
 def source_paths(sources):
     pins=[p for p in ['include/higgshandapi.h','include/higgshandrouting.h','include/higgshandoperations.h','include/hand_broker.h','src/hand_broker.cpp','src/hand_runtime.cpp','src/hand_native.cpp','src/hand.cpp','src/main.cpp','src/hooks.cpp','src/synergy_runtime.cpp','tests/hand_broker_tests.cpp','tests/hand_c_consumer.c','tests/run_hand_tests.py','tests/hand_dll_probe.c','tests/hand_native_fixture.py','tests/hand_native_fakes.h','tests/hand_native_fixture_cases.h','src/config.cpp','include/config.h','config/hand-broker.ini.example','docs/hand-broker.md','higgs_vr.vcxproj','higgs_vr.vcxproj.filters','exports.def']]
     pins=sorted(set(pins+['tests/hand_use_proposal_cases.h','cmake/HiggsServices.cmake','src/hand_support_native.cpp','tests/support_native_fakes.h','tests/support_native_cases.h','tests/support_tests.cpp','tests/hand_authority_tests.cpp','tests/transaction_tests.cpp','tests/secondary_grip_cases.h']+[p.relative_to(ROOT).as_posix() for p in sources]+re.findall(r'"\$\{HIGGS_SERVICE_ROOT\}/(include/[^"\n]+\.h)"',(ROOT/'cmake/HiggsServices.cmake').read_text())))
-    pins += ['src/test/native_regions_tests.cpp','src/test/native_regions_release_fakes.h','docs/native-regions.md']
+    pins += ['src/test/native_regions_tests.cpp','src/test/native_regions_release_fakes.h','docs/native-regions.md',
+             'src/test/authorized_dispatch_cases.h','docs/authorized-dispatch.md']
     return pins
 
 def audit_native():
@@ -29,7 +30,8 @@ def audit_native():
     for name in ['hand_broker','hand_runtime','hand_native']:
         if sources.count('src\\'+name+'.cpp')!=1:raise RuntimeError('native source omitted/duplicated '+name)
     exports=(ROOT/'exports.def').read_text()
-    for symbol in ['HIGGS_QueryHandInterface','HIGGS_QueryHandRoutingInterface','HIGGS_QueryHandOperationsInterface']:
+    for symbol in ['HIGGS_QueryHandInterface','HIGGS_QueryHandRoutingInterface','HIGGS_QueryHandOperationsInterface',
+                   'HIGGS_QueryAuthorizedDispatchInterface']:
         if symbol not in exports:raise RuntimeError('missing '+symbol)
     hooks=(ROOT/'src/hooks.cpp').read_text()
     publish=hooks.index('HiggsHands::PublishNative();')
@@ -92,7 +94,7 @@ def main():
         run('support-native-compile', [*flags,'/wd4100',f'/I{ROOT / "tests"}',*sources,out/'support_native_extracted.cpp',f'/Fe{support_native}'])
         run('support-native-run',[support_native])
         definition=out/'hand_probe.def'
-        definition.write_text('EXPORTS\n HIGGS_QueryHandInterface\n HIGGS_QueryNativeRegionsInterface\n HIGGS_QueryHandRoutingInterface\n HIGGS_QueryHandOperationsInterface\n HIGGS_QueryTransactionsInterface\n HIGGS_QueryGrantMutationInterface\n HIGGS_QueryHandUseInterface\n HIGGS_QueryHandUseTransitionInterface\n HIGGS_QueryHandUseProposalsInterface\n HIGGS_QueryHapticsInterface\n HIGGS_QuerySupportInterface\n HIGGS_QueryInputInterface\n')
+        definition.write_text('EXPORTS\n HIGGS_QueryHandInterface\n HIGGS_QueryNativeRegionsInterface\n HIGGS_QueryHandRoutingInterface\n HIGGS_QueryHandOperationsInterface\n HIGGS_QueryTransactionsInterface\n HIGGS_QueryGrantMutationInterface\n HIGGS_QueryAuthorizedDispatchInterface\n HIGGS_QueryHandUseInterface\n HIGGS_QueryHandUseTransitionInterface\n HIGGS_QueryHandUseProposalsInterface\n HIGGS_QueryHapticsInterface\n HIGGS_QuerySupportInterface\n HIGGS_QueryInputInterface\n')
         dll=out/'hand_probe.dll'
         run('dll-compile',[*flags,'/LD',*sources,f'/Fe{dll}','/link',f'/DEF:{definition}'])
         probe=out/'hand_dll_probe.exe'

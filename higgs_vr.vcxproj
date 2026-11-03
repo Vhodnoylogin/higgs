@@ -298,6 +298,7 @@
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="include\higgsgrantmutation.h" />
+    <ClInclude Include="include\higgsauthorizeddispatch.h" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="src\hand_sessions.cpp" />

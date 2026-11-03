@@ -407,8 +407,13 @@ void HapticOwnership()
         "PASS coordinated priority/commutative haptics, owned context replacement, duplicate submission and lifecycle");
 }
 #include "hand_use_proposal_cases.h"
+#include "../src/test/authorized_dispatch_cases.h"
 int main()
 {
+    AuthorizedDispatchOnce();
+    AuthorizedDispatchAdmission();
+    AuthorizedDispatchInputBoundary();
+    AuthorizedDispatchLifecycle();
     ProposalPriorityRounds();
     ProposalLifetimes();
     ProposalReentrancy();
