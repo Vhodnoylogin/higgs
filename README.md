@@ -34,6 +34,8 @@ The additive [hand services](docs/hand-broker.md) supply coherent occupancy/avai
 
 This mod is complicated.
 
+The optional [Body Slots spatial adapter](docs/native-regions.md) exports actual native mouth/shoulder source samples and accepts one spatial-only detector. HIGGS preserves standalone fallback and its single consume/stash/drop executor, including current hand-authority checks before effects.
+
 The [native player inventory executor](docs/native-inventory.md) supplies observed exact-stack selection tickets and common inventory/world/hand, consumption and hand-equipment transactions. Consumers reuse the existing transaction coordinator; they do not need a bespoke engine remove/pickup/equip executor. Deferred engine postfacts, uncertain mutations and compensation remain explicit. This source is offline tested and native compiled, with no running-game qualification.
 
 To build from source, it requires object definitions / headers similar to those belonging to havok 2010.2. I will not be providing these, nor do I claim to have them myself.

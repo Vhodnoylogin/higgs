@@ -4,6 +4,7 @@
 get_filename_component(HIGGS_SERVICE_ROOT "${CMAKE_CURRENT_LIST_DIR}/.." ABSOLUTE)
 set(HIGGS_SERVICE_INCLUDE_DIR "${HIGGS_SERVICE_ROOT}/include")
 set(HIGGS_SERVICE_SOURCES
+    "${HIGGS_SERVICE_ROOT}/src/main/native_regions.cpp"
     "${HIGGS_SERVICE_ROOT}/src/hand_physical_policy.cpp"
     "${HIGGS_SERVICE_ROOT}/src/physical_policy_runtime.cpp"
     "${HIGGS_SERVICE_ROOT}/src/hand_broker.cpp"
@@ -26,6 +27,8 @@ set(HIGGS_SERVICE_SOURCES
     "${HIGGS_SERVICE_ROOT}/src/hand_parts_runtime.cpp"
 )
 set(HIGGS_SERVICE_HEADERS
+    "${HIGGS_SERVICE_ROOT}/include/higgsnativeregions.h"
+    "${HIGGS_SERVICE_ROOT}/include/native_regions.h"
     "${HIGGS_SERVICE_ROOT}/include/higgsphysicalpolicy.h"
     "${HIGGS_SERVICE_ROOT}/include/hand_physical_policy.h"
     "${HIGGS_SERVICE_ROOT}/include/higgshandapi.h"

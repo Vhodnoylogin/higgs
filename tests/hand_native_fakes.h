@@ -483,6 +483,8 @@ namespace Config
 {
 struct Options
 {
+    NiPoint3 mouthHmdOffset{1, 0, 0}, rightShoulderHmdOffset{0, 2, 0}, leftShoulderHmdOffset{0, -2, 0};
+    float mouthRadius = 2, rightShoulderRadius = 3, leftShoulderRadius = 4;
     bool enableTrigger = true, enableGrip = true, allowGripPressWhileUsingTouchInput = false;
     double triggerPressedLeewayTime = 0.2, inputLeewayTime = 0.2, forceInputTime = 0.2;
     NiPoint3 handCollisionBoxOffset, handCollisionBoxOffsetBeast;
@@ -514,6 +516,12 @@ struct FakeHaptics
 };
 struct Hand
 {
+    uint32_t nativeRegionInsideMask = 0;
+    uint64_t nativeRegionEpoch = 0;
+    NiPointer<NiAVObject> nativeRegionHmdSource;
+    std::array<float,13> nativeRegionGeometrySignature{};
+    uint64_t nativeRegionSourceGeneration = 0;
+    void UpdateNativeRegionSelection(NiAVObject*, const NiPoint3&, const NiPoint3&);
     enum class State
     {
         Idle,

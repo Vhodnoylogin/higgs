@@ -1925,7 +1925,47 @@ void Hand::TransitionPreGrab(TESObjectREFR *selectedObj, bool isExternal)
 }
 
 
-bool Hand::IsObjectDepositable(TESObjectREFR *refr, NiAVObject *hmdNode, const NiPoint3 &handPos) const
+void Hand::UpdateNativeRegionSelection(NiAVObject* hmdNode, const NiPoint3& handPos, const NiPoint3& palmPos)
+{
+    if (!hmdNode) { nativeRegionInsideMask = 0; nativeRegionEpoch = 0; return; }
+    const auto& hmd = hmdNode->m_worldTransform;
+    const std::array<float, 13> signature{
+        Config::options.mouthHmdOffset.x, Config::options.mouthHmdOffset.y, Config::options.mouthHmdOffset.z,
+        Config::options.rightShoulderHmdOffset.x, Config::options.rightShoulderHmdOffset.y, Config::options.rightShoulderHmdOffset.z,
+        Config::options.leftShoulderHmdOffset.x, Config::options.leftShoulderHmdOffset.y, Config::options.leftShoulderHmdOffset.z,
+        Config::options.mouthRadius, Config::options.rightShoulderRadius, Config::options.leftShoulderRadius, hmd.scale};
+    if (nativeRegionHmdSource != hmdNode || nativeRegionGeometrySignature != signature) {
+        if (nativeRegionSourceGeneration == UINT64_MAX) { nativeRegionInsideMask = 0; nativeRegionEpoch = 0; return; }
+        nativeRegionHmdSource = hmdNode;
+        nativeRegionGeometrySignature = signature;
+        ++nativeRegionSourceGeneration;
+    }
+    HIGGS_NativeRegionFrame frame{};
+    frame.structSize = sizeof(frame);
+    frame.physicalHand = isLeft ? HIGGS_HAND_LEFT : HIGGS_HAND_RIGHT;
+    frame.flags = HIGGS_REGION_SOURCE_VALID;
+    frame.sourceGeneration = nativeRegionSourceGeneration;
+    const auto copy = [](float (&out)[3], const NiPoint3& point) {
+        out[0] = point.x; out[1] = point.y; out[2] = point.z;
+    };
+    copy(frame.hmdPosition, hmd.pos);
+    copy(frame.handPosition, handPos);
+    copy(frame.palmPosition, palmPos);
+    frame.hmdScale = hmd.scale;
+    for (size_t row = 0; row < 3; ++row)
+        for (size_t column = 0; column < 3; ++column)
+            frame.hmdRotation[row * 3 + column] = hmd.rot.data[row][column];
+    copy(frame.spheres[0].worldCenter, hmd * Config::options.mouthHmdOffset);
+    copy(frame.spheres[1].worldCenter, hmd * Config::options.rightShoulderHmdOffset);
+    copy(frame.spheres[2].worldCenter, hmd * Config::options.leftShoulderHmdOffset);
+    frame.spheres[0].worldRadius = Config::options.mouthRadius;
+    frame.spheres[1].worldRadius = Config::options.rightShoulderRadius;
+    frame.spheres[2].worldRadius = Config::options.leftShoulderRadius;
+    nativeRegionInsideMask = HiggsHands::Service().EvaluateNativeRegions(frame);
+    nativeRegionEpoch = frame.epoch;
+}
+
+bool Hand::IsObjectDepositable(TESObjectREFR *refr, NiAVObject *, const NiPoint3 &) const
 {
     if (selectedObject.isActor) return false;
 
@@ -1941,26 +1981,12 @@ bool Hand::IsObjectDepositable(TESObjectREFR *refr, NiAVObject *hmdNode, const N
     if (!tracking.available) return false;
     const float speed = tracking.averageSpeed;
 
-    if (speed < Config::options.shoulderVelocityThreshold) {
-        NiPoint3 rightShoulderPos = hmdNode->m_worldTransform * Config::options.rightShoulderHmdOffset;
-        float rightShoulderDistance = VectorLength(handPos - rightShoulderPos);
-        if (rightShoulderDistance < Config::options.rightShoulderRadius) {
-            return true;
-        }
-        else {
-            NiPoint3 leftShoulderPos = hmdNode->m_worldTransform * Config::options.leftShoulderHmdOffset;
-            float leftShoulderDistance = VectorLength(handPos - leftShoulderPos);
-            if (leftShoulderDistance < Config::options.leftShoulderRadius) {
-                return true;
-            }
-        }
-    }
-
-    return false;
+    return speed < Config::options.shoulderVelocityThreshold &&
+        (nativeRegionInsideMask & (HIGGS_REGION_RIGHT_SHOULDER | HIGGS_REGION_LEFT_SHOULDER));
 }
 
 
-bool Hand::IsObjectConsumable(TESObjectREFR *refr, NiAVObject *hmdNode, const NiPoint3 &palmPos) const
+bool Hand::IsObjectConsumable(TESObjectREFR *refr, NiAVObject *, const NiPoint3 &) const
 {
     TESForm *baseForm = refr->baseForm;
     if (!baseForm || !baseForm->IsPlayable() || (baseForm->formType != kFormType_Potion && baseForm->formType != kFormType_Ingredient && baseForm->formType != kFormType_Book)) {
@@ -1981,15 +2007,7 @@ bool Hand::IsObjectConsumable(TESObjectREFR *refr, NiAVObject *hmdNode, const Ni
     if (!tracking.available) return false;
     const float speed = tracking.averageSpeed;
 
-    if (speed < Config::options.mouthVelocityThreshold) {
-        NiPoint3 mouthPos = hmdNode->m_worldTransform * Config::options.mouthHmdOffset;
-        float mouthDistance = VectorLength(palmPos - mouthPos);
-        if (mouthDistance < Config::options.mouthRadius) {
-            return true;
-        }
-    }
-
-    return false;
+    return speed < Config::options.mouthVelocityThreshold && (nativeRegionInsideMask & HIGGS_REGION_MOUTH);
 }
 
 
@@ -2311,6 +2329,8 @@ NiPoint3 Hand::GetPointingVectorWS(NiMatrix33 &handRotation)
 
 void Hand::Update(Hand &other, bhkWorld *world)
 {
+    nativeRegionInsideMask = 0;
+    nativeRegionEpoch = 0;
     //_MESSAGE("%s:, pose update", name);
 
     PlayerCharacter *player = *g_thePlayer;
@@ -2397,6 +2417,10 @@ void Hand::Update(Hand &other, bhkWorld *world)
 
     NiPoint3 palmPos = GetPalmPositionWS(handNode->m_worldTransform);
     NiPoint3 hkPalmPos = palmPos * havokWorldScale;
+
+    // Source geometry is captured once in this actual native hand-update phase;
+    // preview and release predicates share its one selected detector result.
+    UpdateNativeRegionSelection(hmdNode, handPos, palmPos);
 
     TESObjectWEAP *otherHandEquippedWeap = GetEquippedWeapon(player, *g_leftHandedMode == isLeft);
     bool isTwoHandedOffhand = otherHandEquippedWeap && IsTwoHandable(otherHandEquippedWeap) && other.weaponBody;
@@ -3119,7 +3143,23 @@ void Hand::Update(Hand &other, bhkWorld *world)
                             selectedObject.rigidBody->hkBody->m_motion.m_angularVelocity = NiPointToHkVector(angularVelocity);
                         }
 
-                        if ((state == State::Held || state == State::HeldBody) && IsObjectConsumable(selectedObj, hmdNode, palmPos) && !disableConsumeStash) {
+                        const auto nativeRegionActionCurrent = [&](uint32_t requiredRegion) {
+                            // Do not refresh away an input-context/epoch invalidation
+                            // that occurred while request callbacks were running.
+                            if (disableConsumeStash || !HiggsHands::Service().MayNativeRegionAction(
+                                isLeft ? HIGGS_HAND_LEFT : HIGGS_HAND_RIGHT, nativeRegionEpoch, HiggsHands::Now()))
+                                return false;
+                            const auto expectedEpoch = nativeRegionEpoch;
+                            // Refresh through the same one selected detector at the
+                            // action boundary: Body Slots may have reset since preview.
+                            UpdateNativeRegionSelection(hmdNode, handPos, palmPos);
+                            return nativeRegionEpoch == expectedEpoch && !disableConsumeStash && HiggsHands::Service().MayNativeRegionAction(
+                                isLeft ? HIGGS_HAND_LEFT : HIGGS_HAND_RIGHT, nativeRegionEpoch, HiggsHands::Now()) &&
+                                (nativeRegionInsideMask & requiredRegion);
+                        };
+                        const bool nativeRegionActionAllowed = nativeRegionActionCurrent(HIGGS_REGION_ALL);
+                        bool nativeRegionActionExecuted = false;
+                        if ((state == State::Held || state == State::HeldBody) && IsObjectConsumable(selectedObj, hmdNode, palmPos) && nativeRegionActionAllowed) {
                             // Object dropped at the mouth
 
                             TESForm *baseForm = selectedObj->baseForm;
@@ -3127,6 +3167,10 @@ void Hand::Update(Hand &other, bhkWorld *world)
                             HiggsHands::Service().SemanticEvent(HIGGS_EVENT_CONSUMPTION_REQUESTED, isLeft ? HIGGS_HAND_LEFT : HIGGS_HAND_RIGHT, selectedObj->formID, HiggsHands::Now());
                             HiggsPluginAPI::TriggerConsumedCallbacks(isLeft, baseForm); // Do this before activating it so that a callback could still get the held object
 
+                            // Requested-event callbacks may reenter menu/grant/load APIs.
+                            // Revalidate after all callbacks, immediately before the game write.
+                            if (nativeRegionActionCurrent(HIGGS_REGION_MOUTH)) {
+                            nativeRegionActionExecuted = true;
                             UInt32 count = BSExtraList_GetCount(&selectedObj->extraData);
                             TESObjectREFR_Activate(selectedObj, player, 0, 0, count, false);
 
@@ -3142,8 +3186,9 @@ void Hand::Update(Hand &other, bhkWorld *world)
                             }
 
                             haptics.QueueHapticEvent(Config::options.mouthDropHapticStrength, 0, Config::options.mouthDropHapticFadeTime);
+                            }
                         }
-                        else if ((state == State::Held || state == State::HeldBody) && IsObjectDepositable(selectedObj, hmdNode, handPos) && !disableConsumeStash) {
+                        else if ((state == State::Held || state == State::HeldBody) && IsObjectDepositable(selectedObj, hmdNode, handPos) && nativeRegionActionAllowed) {
                             // Object deposited in the shoulder
 
                             UInt32 count = BSExtraList_GetCount(&selectedObj->extraData);
@@ -3153,6 +3198,8 @@ void Hand::Update(Hand &other, bhkWorld *world)
                             HiggsHands::Service().SemanticEvent(HIGGS_EVENT_STASH_REQUESTED, isLeft ? HIGGS_HAND_LEFT : HIGGS_HAND_RIGHT, selectedObj->formID, HiggsHands::Now());
                             HiggsPluginAPI::TriggerStashedCallbacks(isLeft, baseForm); // Do this before activating it so that a callback could still get the held object
 
+                            if (nativeRegionActionCurrent(HIGGS_REGION_RIGHT_SHOULDER | HIGGS_REGION_LEFT_SHOULDER)) {
+                            nativeRegionActionExecuted = true;
                             if (Config::options.skipActivateBooks && selectedObject.isBook) {
                                 // PickUpObject is vfunc 0xCE
 
@@ -3166,8 +3213,9 @@ void Hand::Update(Hand &other, bhkWorld *world)
                             }
 
                             haptics.QueueHapticEvent(Config::options.shoulderDropHapticStrength, 0, Config::options.shoulderDropHapticFadeTime);
+                            }
                         }
-                        else {
+                        if (!nativeRegionActionExecuted) {
                             float mass = NiAVObject_GetMass(GetNodeFromCollidable(selectedObject.collidable), 0);
                             float hapticStrength = min(1.0f, Config::options.grabBaseHapticStrength + Config::options.grabProportionalHapticStrength * max(0.0f, powf(mass, Config::options.grabHapticMassExponent)));
                             haptics.QueueHapticEvent(hapticStrength, 0, Config::options.grabHapticFadeTime);

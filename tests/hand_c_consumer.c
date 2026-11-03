@@ -8,8 +8,12 @@
 #include "higgshaptics.h"
 #include "higgssupport.h"
 #include "higgstransactions.h"
+#include "higgsnativeregions.h"
 #include <stddef.h>
 _Static_assert(sizeof(HIGGS_HandRecord) == 120, "hand record x64 ABI");
+_Static_assert(sizeof(HIGGS_NativeRegionFrame)==184,"native region frame ABI");
+_Static_assert(sizeof(HIGGS_NativeRegionResult)==24,"native region result ABI");
+_Static_assert(sizeof(HIGGS_NativeRegionsInterface)==40,"native region table ABI");
 _Static_assert(sizeof(HIGGS_HandUseTransitionRequest)==56,"hand transition request ABI");
 _Static_assert(sizeof(HIGGS_HandUseTransitionState)==136,"hand transition state ABI");
 _Static_assert(sizeof(HIGGS_HandUseTransitionInterface)==32,"hand transition table ABI");
@@ -36,6 +40,9 @@ _Static_assert(sizeof(HIGGS_SupportState) == 336, "support state ABI");
 _Static_assert(sizeof(HIGGS_SupportUpdate) == 72, "support update ABI");
 int hand_c_consumer(void)
 {
+    const HIGGS_NativeRegionsInterface* regions=HIGGS_QueryNativeRegionsInterface(1,sizeof(HIGGS_NativeRegionsInterface));
+    if (!regions || !regions->RegisterDetector || !regions->CopyFrame ||
+        HIGGS_QueryNativeRegionsInterface(2,sizeof(*regions)) || HIGGS_QueryNativeRegionsInterface(1,sizeof(*regions)-1)) return 5;
     HIGGS_HandInterface api = {0};
     HIGGS_HandRoutingInterface routing = {0};
     HIGGS_HandOperationsInterface operations = {0};

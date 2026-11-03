@@ -9,6 +9,7 @@
 #include "higgsinput.h"
 #include "higgssupport.h"
 #include "higgstransactions.h"
+#include "higgsnativeregions.h"
 #include <stdio.h>
 #ifdef _WIN32
 #include <windows.h>
@@ -37,6 +38,13 @@ int main(int argc, char **argv)
         return 4;
     if (!api.ReportResult || !routing.AuthorizeRecognizer)
         return 5;
+    {
+        HIGGS_QueryNativeRegionsInterfaceFn get=(HIGGS_QueryNativeRegionsInterfaceFn)(void*)GetProcAddress(module,"HIGGS_QueryNativeRegionsInterface");
+        const HIGGS_NativeRegionsInterface* regions=get?get(1,sizeof(*regions)):NULL;
+        if (!regions || regions->structSize!=sizeof(*regions) || regions->abiVersion!=1 ||
+            !regions->RegisterDetector || !regions->RemoveDetector || !regions->CopyFrame ||
+            get(2,sizeof(*regions)) || get(1,sizeof(*regions)-1)) return 7;
+    }
 #define CHECK_TABLE(Name, Type, Fn)                                                                                    \
     do                                                                                                                 \
     {                                                                                                                  \

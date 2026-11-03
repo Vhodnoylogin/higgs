@@ -6,6 +6,7 @@
 #include <mutex>
 
 #include "skse64/InternalVR.h"
+#include "higgsnativeregions.h"
 
 #include "RE/havok.h"
 #include "physics.h"
@@ -225,6 +226,7 @@ struct Hand
     NiPoint3 GetHandVelocity();
     bool IsObjectDepositable(TESObjectREFR *refr, NiAVObject *hmdNode, const NiPoint3 &handPos) const;
     bool IsObjectConsumable(TESObjectREFR *refr, NiAVObject *hmdNode, const NiPoint3 &handPos) const;
+    void UpdateNativeRegionSelection(NiAVObject*, const NiPoint3& handPosition, const NiPoint3& palmPosition);
     bool IsTwoHanding() const;
     UInt32 SpawnEquippedSelectedObject(TESObjectREFR *selectedObj, float zOffsetWhenNotDisconnected);
     bool ShouldDisplayRollover(Hand &other);
@@ -337,6 +339,11 @@ struct Hand
     bool isExternalGrab = false;
     bool disableDropEvents = false;
     bool disableConsumeStash = false;
+    uint32_t nativeRegionInsideMask = 0; // One selected spatial detector per native update.
+    uint64_t nativeRegionEpoch = 0;
+    NiPointer<NiAVObject> nativeRegionHmdSource; // Retained identity, never exposed through the ABI.
+    std::array<float, 13> nativeRegionGeometrySignature{};
+    uint64_t nativeRegionSourceGeneration = 0;
 
     bool externalGrabRequested = false;
     NiPointer<TESObjectREFR> externalGrabRequestedObject = nullptr;

@@ -176,9 +176,12 @@
   <ItemGroup>
     <ClCompile Include="src\hand_broker.cpp"><Filter>src</Filter></ClCompile>
     <ClCompile Include="src\hand_runtime.cpp"><Filter>src</Filter></ClCompile>
+    <ClCompile Include="src\main\native_regions.cpp"><Filter>src</Filter></ClCompile>
     <ClCompile Include="src\hand_native.cpp"><Filter>src</Filter></ClCompile>
     <ClInclude Include="include\hand_broker.h"><Filter>include</Filter></ClInclude>
     <ClInclude Include="include\higgshandapi.h"><Filter>include</Filter></ClInclude>
+    <ClInclude Include="include\higgsnativeregions.h"><Filter>include</Filter></ClInclude>
+    <ClInclude Include="include\native_regions.h"><Filter>include</Filter></ClInclude>
     <ClInclude Include="include\higgshandrouting.h"><Filter>include</Filter></ClInclude>
     <ClInclude Include="include\higgshandoperations.h"><Filter>include</Filter></ClInclude>
   </ItemGroup>

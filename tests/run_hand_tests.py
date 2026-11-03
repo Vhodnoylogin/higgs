@@ -19,6 +19,7 @@ ROOT = Path(__file__).resolve().parents[1]
 def source_paths(sources):
     pins=[p for p in ['include/higgshandapi.h','include/higgshandrouting.h','include/higgshandoperations.h','include/hand_broker.h','src/hand_broker.cpp','src/hand_runtime.cpp','src/hand_native.cpp','src/hand.cpp','src/main.cpp','src/hooks.cpp','src/synergy_runtime.cpp','tests/hand_broker_tests.cpp','tests/hand_c_consumer.c','tests/run_hand_tests.py','tests/hand_dll_probe.c','tests/hand_native_fixture.py','tests/hand_native_fakes.h','tests/hand_native_fixture_cases.h','src/config.cpp','include/config.h','config/hand-broker.ini.example','docs/hand-broker.md','higgs_vr.vcxproj','higgs_vr.vcxproj.filters','exports.def']]
     pins=sorted(set(pins+['tests/hand_use_proposal_cases.h','cmake/HiggsServices.cmake','src/hand_support_native.cpp','tests/support_native_fakes.h','tests/support_native_cases.h','tests/support_tests.cpp','tests/hand_authority_tests.cpp','tests/transaction_tests.cpp','tests/secondary_grip_cases.h']+[p.relative_to(ROOT).as_posix() for p in sources]+re.findall(r'"\$\{HIGGS_SERVICE_ROOT\}/(include/[^"\n]+\.h)"',(ROOT/'cmake/HiggsServices.cmake').read_text())))
+    pins += ['src/test/native_regions_tests.cpp','src/test/native_regions_release_fakes.h','docs/native-regions.md']
     return pins
 
 def audit_native():
@@ -74,6 +75,9 @@ def main():
         authority=out/'hand_authority_tests.exe'
         run('authority-compile', [*flags,*sources,ROOT/'tests/hand_authority_tests.cpp',f'/Fe{authority}'])
         run('authority-run',[authority])
+        regions=out/'native_regions_tests.exe'
+        run('native-regions-compile', [*flags,*sources,ROOT/'src/test/native_regions_tests.cpp',f'/Fe{regions}'])
+        run('native-regions-run',[regions])
         support=out/'support_tests.exe'
         run('support-compile', [*flags,*sources,ROOT/'tests/support_tests.cpp',f'/Fe{support}'])
         run('support-run',[support])
@@ -81,11 +85,14 @@ def main():
         fixture=out/'hand_native_fixture.exe'
         run('native-source-compile', [*flags,'/wd4100',f'/I{ROOT / "tests"}',*sources,out/'hand_native_extracted.cpp',f'/Fe{fixture}'])
         run('native-source-run',[fixture])
+        region_release=out/'native_regions_release_fixture.exe'
+        run('native-regions-release-compile', [*flags,f'/I{ROOT / "src/test"}',*sources,out/'native_regions_release_extracted.cpp',f'/Fe{region_release}'])
+        run('native-regions-release-run',[region_release])
         support_native=out/'support_native_fixture.exe'
         run('support-native-compile', [*flags,'/wd4100',f'/I{ROOT / "tests"}',*sources,out/'support_native_extracted.cpp',f'/Fe{support_native}'])
         run('support-native-run',[support_native])
         definition=out/'hand_probe.def'
-        definition.write_text('EXPORTS\n HIGGS_QueryHandInterface\n HIGGS_QueryHandRoutingInterface\n HIGGS_QueryHandOperationsInterface\n HIGGS_QueryTransactionsInterface\n HIGGS_QueryGrantMutationInterface\n HIGGS_QueryHandUseInterface\n HIGGS_QueryHandUseTransitionInterface\n HIGGS_QueryHandUseProposalsInterface\n HIGGS_QueryHapticsInterface\n HIGGS_QuerySupportInterface\n HIGGS_QueryInputInterface\n')
+        definition.write_text('EXPORTS\n HIGGS_QueryHandInterface\n HIGGS_QueryNativeRegionsInterface\n HIGGS_QueryHandRoutingInterface\n HIGGS_QueryHandOperationsInterface\n HIGGS_QueryTransactionsInterface\n HIGGS_QueryGrantMutationInterface\n HIGGS_QueryHandUseInterface\n HIGGS_QueryHandUseTransitionInterface\n HIGGS_QueryHandUseProposalsInterface\n HIGGS_QueryHapticsInterface\n HIGGS_QuerySupportInterface\n HIGGS_QueryInputInterface\n')
         dll=out/'hand_probe.dll'
         run('dll-compile',[*flags,'/LD',*sources,f'/Fe{dll}','/link',f'/DEF:{definition}'])
         probe=out/'hand_dll_probe.exe'

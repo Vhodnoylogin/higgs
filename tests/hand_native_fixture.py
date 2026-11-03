@@ -15,6 +15,14 @@ def method(source, signature):
 def generate(root, out):
     native=(root/'src/hand_native.cpp').read_text()
     hand=(root/'src/hand.cpp').read_text()
+    release_start=hand.index('const auto nativeRegionActionCurrent =')
+    release_end=hand.index('if (!other.HasHeldObject() || other.selectedObject.rigidBody != selectedObject.rigidBody)',release_start)
+    release=hand[release_start:release_end]
+    (out/'native_regions_release_extracted.cpp').write_text(
+        '#include "native_regions_release_fakes.h"\nvoid Hand::ProbeRegionRelease() {\n'
+        'auto phase=HiggsHands::Service().NativePhase();\n'
+        'auto* selectedObj=&reference; void* player=nullptr; NiAVObject hmd; auto* hmdNode=&hmd; NiPoint3 palmPos,handPos;\n'
+        +release+'\n}\nint main(){return RunReleaseCases();}\n')
     # Verify receipt calls remain after the real keyframe/constraint mutations;
     # the full Hand::Update engine graph cannot be qualified by these seams.
     secondary_start=hand.index('state = State::HeldTwoHanded;')
@@ -29,6 +37,7 @@ def generate(root, out):
     extracted=native[native.index('namespace HiggsHands'):]
     for signature in ['void Hand::ControllerStateUpdate(', 'hkTransform Hand::ComputeHandCollisionTransform(', 'void Hand::MoveHandAndWeaponCollision(']:
         extracted+='\n'+method(hand,signature)+'\n'
+    extracted+='\n'+method(hand,'void Hand::UpdateNativeRegionSelection(')+'\n'
     observations=(root/'src/hand_observations_native.cpp').read_text()
     extracted+='\nnamespace HiggsHands { namespace {\n'+method(observations,'void Vector(')+'\n}\n'
     extracted+=method(observations,'void ObserveNativeSamples(')+'\n'+method(observations,'void ObserveNativeContact(')+'\n}\n'

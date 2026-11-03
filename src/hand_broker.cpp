@@ -1,6 +1,7 @@
 #include "hand_broker.h"
 #include "hand_observations.h"
 #include "own_contact.h"
+#include "native_regions.h"
 #include <algorithm>
 #include <cctype>
 #include <charconv>
@@ -1440,6 +1441,8 @@ void Broker::ObserveWorld(uintptr_t world, bool loading, Clock now)
         snapshot_.generation = generation;
         snapshot_.worldReady = world && !loading;
         snapshot_.sampledAtNs = now;
+        for (auto& frame : nativeRegionFrames_) frame = {};
+        for (auto& context : nativeRegionContexts_) context = 0;
         snapshot_.hands[0].physicalHand = HIGGS_HAND_LEFT;
         snapshot_.hands[1].physicalHand = HIGGS_HAND_RIGHT;
         for (auto &hand : contextHands_) hand = {};
@@ -1723,6 +1726,7 @@ void Broker::Publish(const std::array<HIGGS_HandRecord, 2> &records, Clock now)
 }
 HIGGS_HandStatus Broker::Physical(uint64_t owner, const HIGGS_PhysicalRequest &p, uint64_t &out, Clock now)
 {
+    auto phase = NativePhase(); // Serialize new grants with native hand writes.
     std::lock_guard lock(mutex_);
     if (!ClientLocked(owner))
         return HIGGS_HAND_INVALID_CLIENT;
@@ -1915,8 +1919,110 @@ bool Broker::MaySupport(uint32_t hand, Clock now)
             return true;
     return false;
 }
+HIGGS_HandStatus Broker::NativeRegionDetector(uint64_t owner, HIGGS_NativeRegionDetector callback,
+                                             void* context, uint64_t& out)
+{
+    if (!callback) return HIGGS_HAND_INVALID_ARGUMENT;
+    auto phase = NativePhase();
+    std::lock_guard lock(mutex_);
+    if (nativeRegionCallback_) return HIGGS_HAND_WRONG_PHASE;
+    if (!ClientLocked(owner)) return HIGGS_HAND_INVALID_CLIENT;
+    for (const auto& r : registrations_)
+        if (r->kind == 7 && (r->active || r->inFlight)) return HIGGS_HAND_CONFLICT;
+    if (registrations_.size() >= 256) return HIGGS_HAND_CAPACITY;
+    auto r = std::make_shared<Registration>();
+    r->id = nextToken_++; r->owner = owner; r->kind = 7;
+    r->nativeRegionDetector = callback; r->context = context;
+    registrations_.push_back(r);
+    out = r->id;
+    return HIGGS_HAND_OK;
+}
+HIGGS_HandStatus Broker::RemoveNativeRegionDetector(uint64_t owner, uint64_t registration)
+{
+    auto phase = NativePhase();
+    {
+        std::lock_guard lock(mutex_);
+        auto r = RegistrationLocked(registration);
+        if (!r || r->kind != 7) return HIGGS_HAND_NOT_FOUND;
+        if (r->owner != owner) return HIGGS_HAND_WRONG_OWNER;
+    }
+    return Remove(owner, registration);
+}
+HIGGS_HandStatus Broker::CopyNativeRegionFrame(uint64_t owner, uint32_t hand, HIGGS_NativeRegionFrame& out)
+{
+    std::lock_guard lock(mutex_);
+    if (!ClientLocked(owner)) return HIGGS_HAND_INVALID_CLIENT;
+    if (!Hand(hand)) return HIGGS_HAND_INVALID_ARGUMENT;
+    const auto& frame = nativeRegionFrames_[hand == HIGGS_HAND_LEFT ? 0 : 1];
+    if (!snapshot_.worldReady || worldChangePending_ || !frame.sampleId || frame.epoch != snapshot_.epoch ||
+        !(frame.flags & HIGGS_REGION_SOURCE_VALID)) return HIGGS_HAND_NOT_READY;
+    out = frame;
+    return HIGGS_HAND_OK;
+}
+uint32_t Broker::EvaluateNativeRegions(HIGGS_NativeRegionFrame& frame, bool* usedDetector)
+{
+    if (usedDetector) *usedDetector = false;
+    if (!Hand(frame.physicalHand)) return 0;
+    auto phase = NativePhase();
+    std::shared_ptr<Registration> detector;
+    {
+        std::lock_guard lock(mutex_);
+        // Recursion cannot overwrite the outer native source or invoke a second detector.
+        if (nativeRegionCallback_) return 0;
+        frame.epoch = snapshot_.epoch;
+        frame.sampleId = nextNativeRegionSample_++;
+        frame.observedAtNs = Now();
+        frame.handGeneration = snapshot_.hands[frame.physicalHand == HIGGS_HAND_LEFT ? 0 : 1].generation;
+        if (!snapshot_.worldReady || worldChangePending_ || !frame.sourceGeneration || !NativeRegionGeometryValid(frame)) frame.flags = 0;
+        nativeRegionFrames_[frame.physicalHand == HIGGS_HAND_LEFT ? 0 : 1] = frame;
+        nativeRegionContexts_[frame.physicalHand == HIGGS_HAND_LEFT ? 0 : 1] = contextGeneration_;
+        if (!frame.flags) return 0;
+        for (const auto& r : registrations_)
+            if (r->kind == 7 && r->active && ClientLocked(r->owner)) { detector = r; break; }
+        if (detector) { ++detector->inFlight; nativeRegionCallback_ = true; }
+    }
+    if (!detector) return NativeRegionFallbackMask(frame);
+    HIGGS_NativeRegionResult result{};
+    result.structSize = sizeof(result);
+    HIGGS_HandStatus status = HIGGS_HAND_INTERNAL_ERROR;
+    {
+        CallbackScope scope(this, detector->owner);
+        try { status = detector->nativeRegionDetector(&frame, &result, detector->context); } catch (...) {}
+    }
+    {
+        std::lock_guard lock(mutex_);
+        nativeRegionCallback_ = false;
+        --detector->inFlight;
+        drained_.notify_all();
+        if (!snapshot_.worldReady || worldChangePending_ || frame.epoch != snapshot_.epoch) return 0;
+        if (!detector->active || !ClientLocked(detector->owner)) return NativeRegionFallbackMask(frame);
+        if (status == HIGGS_HAND_OK && result.structSize == sizeof(result) && result.epoch == frame.epoch &&
+            result.sampleId == frame.sampleId && !(result.insideMask & ~HIGGS_REGION_ALL)) {
+            if (usedDetector) *usedDetector = true;
+            return result.insideMask;
+        }
+    }
+    return NativeRegionFallbackMask(frame);
+}
+bool Broker::MayNativeRegionAction(uint32_t hand, uint64_t epoch, Clock now)
+{
+    if (!Hand(hand)) return false;
+    auto phase = NativePhase();
+    std::lock_guard lock(mutex_);
+    ExpireLocked(now);
+    const auto index = hand == HIGGS_HAND_LEFT ? 0 : 1;
+    const auto& current = snapshot_.hands[index];
+    const auto& frame = nativeRegionFrames_[index];
+    return snapshot_.worldReady && !worldChangePending_ && !contextMenus_ && epoch == snapshot_.epoch &&
+        frame.epoch == epoch && (frame.flags & HIGGS_REGION_SOURCE_VALID) &&
+        nativeRegionContexts_[index] == contextGeneration_ &&
+        current.availability != HIGGS_AVAILABILITY_UNKNOWN &&
+        current.generation == frame.handGeneration && !current.grant && !current.unavailableReasons &&
+        !(current.observationMask & HIGGS_OBS_SECONDARY_SUPPORT);
+}
 HIGGS_HandStatus Broker::Operation(uint64_t owner, const HIGGS_HandOperation &p, uint64_t &out, Clock now)
 {
+    auto phase = NativePhase();
     std::lock_guard lock(mutex_);
     if (!ClientLocked(owner))
         return HIGGS_HAND_INVALID_CLIENT;

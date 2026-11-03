@@ -98,7 +98,9 @@ struct hkVector4 {NiPoint3 value;};
 NiPoint3 HkVectorToNiPoint(hkVector4 value){return value.value;}
 struct Body { NiPoint3 center{0,2,0}; hkVector4& getCenterOfMassInWorld(hkVector4& out){out.value=center;return out;} };
 struct ReleaseResult {NiPoint3 total,angular,tangential;bool collide;};
+#include "higgsnativeregions.h"
 struct Hand {
+    uint32_t nativeRegionInsideMask=7; // Supplied inside spatial result; this fixture checks motion gating.
     bool isLeft=true,twoHand=false;float avgPlayerSpeedWorldspace=4;NiPoint3 avgPlayerVelocityWorldspace{2,3,4};
     float havokWorldScale=0.5f; NiPoint3 hkPalmPos,hkHandPos{3,0,0};NiAVObject* handNode=nullptr; float handSize=1;
     TESObjectREFR* selectedObj=nullptr;

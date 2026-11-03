@@ -295,6 +295,37 @@ int main()
     fixtureLeft.holding=false;PublishNative();CHECK(nativeItems.size()==1);CHECK(!Transactions().RetireNativeItem(pinned.instance));
     CHECK(CopyNativeItemReference(pinned,retained)&&retained==&held);
     CHECK(!Transactions().Cancel(owner,transferId,Service().Epoch()));PublishNative();CHECK(nativeItems.empty());CHECK(!Transactions().IdentityCurrent(pinned));
+    // Actual native source capture: offsets scale with HMD, world radii do not.
+    NiAVObject regionHmd;
+    regionHmd.m_worldTransform.pos = {10,20,30};
+    regionHmd.m_worldTransform.scale = 2;
+    fixtureLeft.UpdateNativeRegionSelection(&regionHmd,{10,24,30},{12,20,30});
+    CHECK(fixtureLeft.nativeRegionInsideMask == 3);
+    HIGGS_NativeRegionFrame regionFrame{};
+    CHECK(!Service().CopyNativeRegionFrame(owner,HIGGS_HAND_LEFT,regionFrame));
+    CHECK(regionFrame.spheres[0].worldCenter[0] == 12 && regionFrame.spheres[0].worldRadius == 2);
+    CHECK(regionFrame.spheres[1].worldCenter[1] == 24 && regionFrame.spheres[1].worldRadius == 3);
+    const auto sourceGeneration = regionFrame.sourceGeneration;
+    regionHmd.m_worldTransform.pos.x += 1;
+    fixtureLeft.UpdateNativeRegionSelection(&regionHmd,{11,24,30},{13,20,30});
+    CHECK(!Service().CopyNativeRegionFrame(owner,HIGGS_HAND_LEFT,regionFrame));
+    CHECK(regionFrame.sourceGeneration == sourceGeneration);
+    NiAVObject replacementHmd;
+    replacementHmd.m_worldTransform = regionHmd.m_worldTransform;
+    fixtureLeft.UpdateNativeRegionSelection(&replacementHmd,{11,24,30},{13,20,30});
+    CHECK(!Service().CopyNativeRegionFrame(owner,HIGGS_HAND_LEFT,regionFrame));
+    CHECK(regionFrame.sourceGeneration == sourceGeneration + 1);
+    Config::options.mouthRadius = 2.5f;
+    fixtureLeft.UpdateNativeRegionSelection(&replacementHmd,{11,24,30},{13,20,30});
+    CHECK(!Service().CopyNativeRegionFrame(owner,HIGGS_HAND_LEFT,regionFrame));
+    CHECK(regionFrame.sourceGeneration == sourceGeneration + 2 && regionFrame.spheres[0].worldRadius == 2.5f);
+    replacementHmd.m_worldTransform.scale = 1;
+    fixtureLeft.UpdateNativeRegionSelection(&replacementHmd,{11,22,30},{12,20,30});
+    CHECK(!Service().CopyNativeRegionFrame(owner,HIGGS_HAND_LEFT,regionFrame));
+    CHECK(regionFrame.sourceGeneration == sourceGeneration + 3);
+    fixtureLeft.UpdateNativeRegionSelection(nullptr,{},{});
+    CHECK(!fixtureLeft.nativeRegionInsideMask && !fixtureLeft.nativeRegionEpoch);
+    Config::options.mouthRadius = 2;
     SecondaryGripFixture(owner);
     std::puts("PASS actual native-source input masking, drawn/unknown equipment, static anchor validation, keyframe "
               "target, geometry restore and grip replacement/receipt seams (not engine/game qualification)");

@@ -8,6 +8,7 @@
 #include "higgshandusetransition.h"
 #include "higgshanduseproposals.h"
 #include "higgstransactions.h"
+#include "higgsnativeregions.h"
 #include <array>
 #include <condition_variable>
 #include <memory>
@@ -81,6 +82,11 @@ class Broker
     bool HasGrant(uint32_t hand, Clock);
     bool MayAcquire(uint32_t hand, Clock);
     bool MaySupport(uint32_t hand, Clock);
+    HIGGS_HandStatus NativeRegionDetector(uint64_t, HIGGS_NativeRegionDetector, void*, uint64_t&);
+    HIGGS_HandStatus RemoveNativeRegionDetector(uint64_t, uint64_t);
+    HIGGS_HandStatus CopyNativeRegionFrame(uint64_t, uint32_t, HIGGS_NativeRegionFrame&);
+    uint32_t EvaluateNativeRegions(HIGGS_NativeRegionFrame&, bool* usedDetector = nullptr);
+    bool MayNativeRegionAction(uint32_t, uint64_t epoch, Clock);
     bool ConfigurePriorities(const std::string &settings);
     bool EffectivePriority(uint64_t, int32_t &);
     HIGGS_HandStatus HandUse(uint64_t, const HIGGS_HandUseRequest &, HIGGS_HandUseState &, uint64_t);
@@ -138,6 +144,7 @@ class Broker
         HIGGS_TransferExecutorCallback transfer = nullptr;
         HIGGS_InputRecognizerSpec input{};
         HIGGS_InputContextCallback inputContext = nullptr;
+        HIGGS_NativeRegionDetector nativeRegionDetector = nullptr;
         void *context = nullptr;
         std::vector<std::pair<uint64_t, uint32_t>> routes;
     };
@@ -232,6 +239,10 @@ class Broker
     uint64_t nextToken_ = 1, nextInput_ = 1, nextObservation_ = 1, nextEvent_ = 1;
     uint64_t nextUseRound_ = 1;
     bool drainingHandUses_ = false; // serialized by dispatch_, including callback reentry
+    HIGGS_NativeRegionFrame nativeRegionFrames_[2]{};
+    uint64_t nativeRegionContexts_[2]{};
+    uint64_t nextNativeRegionSample_ = 1;
+    bool nativeRegionCallback_ = false; // serialized by dispatch_, rejects recursive detector calls
 };
 Broker &Service();
 Clock Now();

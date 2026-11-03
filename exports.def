@@ -5,6 +5,7 @@ SKSEPlugin_Load
 HIGGS_QuerySynergyInterface
 HIGGS_QueryMotionInterface
 HIGGS_QueryHandInterface
+HIGGS_QueryNativeRegionsInterface
 HIGGS_QueryHandRoutingInterface
 HIGGS_QueryHandOperationsInterface
 HIGGS_QueryTransactionsInterface
