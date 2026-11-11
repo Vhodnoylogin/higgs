@@ -4,6 +4,7 @@
 #include "config.h"
 #include "math_utils.h"
 #include "utils.h"
+#include "hand_broker.h"
 
 
 static inline double vlibGetSetting(const char * name) {
@@ -542,6 +543,12 @@ namespace Config {
         RegisterInt("dummyInt3", options.dummyInt3, false);
         RegisterInt("dummyInt4", options.dummyInt4, false);
 
+        bool prioritiesTruncated=false;
+        const auto handBrokerPriorities=GetConfigOption("HandBroker", "Priorities", &prioritiesTruncated);
+        if(prioritiesTruncated || !HiggsHands::Service().ConfigurePriorities(handBrokerPriorities)) {
+            _WARNING("Invalid [HandBroker] Priorities; preserving the previous complete override map");
+            success=false;
+        }
         g_registrationComplete = true;
 
         return success;
@@ -589,16 +596,18 @@ namespace Config {
         return s_configPath;
     }
 
-    std::string GetConfigOption(const char *section, const char *key)
+    std::string GetConfigOption(const char *section, const char *key, bool *truncated)
     {
+        if(truncated)*truncated=false;
         std::string	result;
 
         const std::string & configPath = GetConfigPath();
         if (!configPath.empty()) {
-            char	resultBuf[256];
+            char	resultBuf[8192];
             resultBuf[0] = 0;
 
             UInt32	resultLen = GetPrivateProfileString(section, key, NULL, resultBuf, sizeof(resultBuf), configPath.c_str());
+            if(truncated)*truncated=resultLen>=sizeof(resultBuf)-1;
 
             result = resultBuf;
         }

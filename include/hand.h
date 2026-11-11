@@ -6,6 +6,7 @@
 #include <mutex>
 
 #include "skse64/InternalVR.h"
+#include "higgsnativeregions.h"
 
 #include "RE/havok.h"
 #include "physics.h"
@@ -13,8 +14,14 @@
 #include "haptics.h"
 #include "finger_animator.h"
 #include "config.h"
+#include "controller_tracking.h"
 
 #include <Physics/Collide/Shape/Convex/Box/hkpBoxShape.h>
+
+inline NiPoint3 TrackedVelocityPoint(const HiggsMotion::Vector3& value)
+{
+    return { value.x, value.y, value.z };
+}
 
 
 struct Hand
@@ -76,35 +83,6 @@ struct Hand
         TESObjectWEAP *weapon;
         float prevFrameTwistAngle360 = 0;
         AngleState angleState = AngleState::None;
-    };
-
-    struct ControllerTrackingData
-    {
-        std::deque<NiPoint3> linearVelocities{ 5, NiPoint3() };
-        std::deque<NiPoint3> angularVelocities{ 5, NiPoint3() };
-        NiPoint3 avgVelocity;
-        float avgSpeed;
-
-        void RecomputeAverageVelocity()
-        {
-            avgVelocity = std::accumulate(linearVelocities.begin(), linearVelocities.end(), NiPoint3()) / linearVelocities.size();
-        }
-
-        void RecomputeAverageSpeed()
-        {
-            float speed = 0;
-            for (NiPoint3 &velocity : linearVelocities) {
-                speed += VectorLength(velocity);
-            }
-            speed /= std::size(linearVelocities);
-            avgSpeed = speed;
-        }
-
-        void Recompute()
-        {
-            RecomputeAverageVelocity();
-            RecomputeAverageSpeed();
-        }
     };
 
     struct ShapeIdentifier
@@ -204,7 +182,7 @@ struct Hand
     bool FindFarObject(bhkWorld *world, const Hand &other, const NiPoint3 &hkPalmNodePos, const NiPoint3 &castDirection, const NiPoint3 &hkHmdPos, const NiPoint3 &hmdForward, const bhkSimpleShapePhantom *sphere,
         NiPointer<TESObjectREFR> &closestObj, NiPointer<bhkRigidBody> &closestRigidBody, hkVector4 &closestPoint);
     bool FindOtherWeapon(bhkWorld *world, const Hand &other, const NiPoint3 &startPos, const NiPoint3 &castDirection, const bhkSimpleShapePhantom *sphere, hkVector4 &hitPoint);
-    void CreateHandCollision(bhkWorld *world);
+    void CreateHandCollision(bhkWorld *world, const NiPoint3 *halfExtentsOverride = nullptr);
     void RemoveHandCollision(bhkWorld *world);
     void RemoveHandCollisionFromCurrentWorld();
     void UpdateHandCollision(bhkWorld *world);
@@ -248,6 +226,7 @@ struct Hand
     NiPoint3 GetHandVelocity();
     bool IsObjectDepositable(TESObjectREFR *refr, NiAVObject *hmdNode, const NiPoint3 &handPos) const;
     bool IsObjectConsumable(TESObjectREFR *refr, NiAVObject *hmdNode, const NiPoint3 &handPos) const;
+    void UpdateNativeRegionSelection(NiAVObject*, const NiPoint3& handPosition, const NiPoint3& palmPosition);
     bool IsTwoHanding() const;
     UInt32 SpawnEquippedSelectedObject(TESObjectREFR *selectedObj, float zOffsetWhenNotDisconnected);
     bool ShouldDisplayRollover(Hand &other);
@@ -258,7 +237,7 @@ struct Hand
     bool ShouldRestrictTrigger() const;
     bool ShouldNotBlockTrigger() const;
     bool CanHoldObject() const;
-    bool CanTwoHand() const;
+    bool CanTwoHand(bool continuingExisting = false) const;
     bool CanGrabObject() const;
     bool HasHeldObject() const;
     bool CanOtherGrab() const;
@@ -316,7 +295,6 @@ struct Hand
     TESEffectShader *itemSelectedShader = nullptr;
     TESEffectShader *itemSelectedShaderOffLimits = nullptr;
 
-    ControllerTrackingData controllerData{};
     std::deque<NiPoint3> playerVelocitiesWorldspace{ 5, NiPoint3() }; // previous n player velocities in skyrim worldspace
     NiPoint3 avgPlayerVelocityWorldspace{};
     float avgPlayerSpeedWorldspace = 0.f;
@@ -361,9 +339,15 @@ struct Hand
     bool isExternalGrab = false;
     bool disableDropEvents = false;
     bool disableConsumeStash = false;
+    uint32_t nativeRegionInsideMask = 0; // One selected spatial detector per native update.
+    uint64_t nativeRegionEpoch = 0;
+    NiPointer<NiAVObject> nativeRegionHmdSource; // Retained identity, never exposed through the ABI.
+    std::array<float, 13> nativeRegionGeometrySignature{};
+    uint64_t nativeRegionSourceGeneration = 0;
 
     bool externalGrabRequested = false;
     NiPointer<TESObjectREFR> externalGrabRequestedObject = nullptr;
+    bool synergyGrabPending = false; // Broker-owned async acquisition; cancel on revoked request.
 
     double lastSelectedTime = 0; // Timestamp of the last time we were pointing at something valid
     double grabRequestedTime = 0; // Timestamp when the trigger was pressed
@@ -383,6 +367,8 @@ struct Hand
     double startGrabLerpHandDuration = 0;
 
     double selectedTwoHandTime = 0;
+    uint64_t synergySecondaryEpisode = 0;
+    uint64_t synergyContactHoldEpisode = 0;
     bool wasSelectedTwoHandLerping = false;
 
     float handSize = 1.f;

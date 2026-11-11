@@ -54,6 +54,12 @@
     <ClCompile Include="src\pluginapi.cpp">
       <Filter>src</Filter>
     </ClCompile>
+    <ClCompile Include="src\synergy_core.cpp">
+      <Filter>src</Filter>
+    </ClCompile>
+    <ClCompile Include="src\synergy_runtime.cpp">
+      <Filter>src</Filter>
+    </ClCompile>
     <ClCompile Include="src\higgsinterface001.cpp">
       <Filter>src</Filter>
     </ClCompile>
@@ -122,6 +128,18 @@
     <ClInclude Include="include\pluginapi.h">
       <Filter>include</Filter>
     </ClInclude>
+    <ClInclude Include="include\higgssynergy.h">
+      <Filter>include</Filter>
+    </ClInclude>
+    <ClInclude Include="include\synergy_core.h">
+      <Filter>include</Filter>
+    </ClInclude>
+    <ClInclude Include="include\synergy_policy.h">
+      <Filter>include</Filter>
+    </ClInclude>
+    <ClInclude Include="include\synergy_runtime.h">
+      <Filter>include</Filter>
+    </ClInclude>
     <ClInclude Include="include\higgsinterface001.h">
       <Filter>include</Filter>
     </ClInclude>
@@ -149,5 +167,75 @@
     <ClInclude Include="include\draw.h">
       <Filter>include</Filter>
     </ClInclude>
+    <ClInclude Include="include\higgsmotion.h"><Filter>include</Filter></ClInclude>
+    <ClInclude Include="include\motion_runtime.h"><Filter>include</Filter></ClInclude>
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="src\motion_runtime.cpp"><Filter>src</Filter></ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="src\hand_broker.cpp"><Filter>src</Filter></ClCompile>
+    <ClCompile Include="src\hand_runtime.cpp"><Filter>src</Filter></ClCompile>
+    <ClCompile Include="src\main\native_regions.cpp"><Filter>src</Filter></ClCompile>
+    <ClCompile Include="src\hand_native.cpp"><Filter>src</Filter></ClCompile>
+    <ClInclude Include="include\hand_broker.h"><Filter>include</Filter></ClInclude>
+    <ClInclude Include="include\higgshandapi.h"><Filter>include</Filter></ClInclude>
+    <ClInclude Include="include\higgsnativeregions.h"><Filter>include</Filter></ClInclude>
+    <ClInclude Include="include\native_regions.h"><Filter>include</Filter></ClInclude>
+    <ClInclude Include="include\higgshandrouting.h"><Filter>include</Filter></ClInclude>
+    <ClInclude Include="include\higgshandoperations.h"><Filter>include</Filter></ClInclude>
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="src\hand_transactions.cpp"><Filter>src</Filter></ClCompile>
+    <ClCompile Include="src\transaction_runtime.cpp"><Filter>src</Filter></ClCompile>
+    <ClCompile Include="src\inventory_service.cpp" />
+    <ClCompile Include="src\own_contact.cpp" />
+    <ClCompile Include="src\own_contact_runtime.cpp" />
+    <ClCompile Include="src\own_contact_native.cpp" />
+    <ClCompile Include="src\synergy_inventory_native.cpp" />
+    <ClInclude Include="include\hand_transactions.h"><Filter>include</Filter></ClInclude>
+    <ClInclude Include="include\higgstransactions.h"><Filter>include</Filter></ClInclude>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="include\higgsgrantmutation.h"><Filter>include</Filter></ClInclude>
+    <ClInclude Include="include\higgsauthorizeddispatch.h"><Filter>include</Filter></ClInclude>
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="src\hand_sessions.cpp"><Filter>src</Filter></ClCompile>
+    <ClCompile Include="src\hand_use_proposals.cpp"><Filter>src</Filter></ClCompile>
+    <ClCompile Include="src\haptic_schedule.cpp"><Filter>src</Filter></ClCompile>
+    <ClInclude Include="include\higgshanduse.h"><Filter>include</Filter></ClInclude>
+    <ClInclude Include="include\higgshaptics.h"><Filter>include</Filter></ClInclude>
+    <ClInclude Include="include\haptic_schedule.h"><Filter>include</Filter></ClInclude>
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="src\hand_input_extended.cpp"><Filter>Source</Filter></ClCompile>
+    <ClCompile Include="src\hand_input_context.cpp"><Filter>Source</Filter></ClCompile>
+    <ClCompile Include="src\input_runtime.cpp"><Filter>Source</Filter></ClCompile>
+    <ClCompile Include="src\hand_support.cpp"><Filter>Source</Filter></ClCompile>
+    <ClCompile Include="src\hand_parts.cpp"><Filter>Source</Filter></ClCompile>
+    <ClCompile Include="src\hand_parts_runtime.cpp"><Filter>Source</Filter></ClCompile>
+    <ClCompile Include="src\hand_parts_native.cpp"><Filter>Source</Filter></ClCompile>
+    <ClCompile Include="src\hand_support_native.cpp"><Filter>Source</Filter></ClCompile>
+    <ClInclude Include="include\higgsinput.h"><Filter>Header</Filter></ClInclude>
+    <ClInclude Include="include\hand_input_extended.h"><Filter>Header</Filter></ClInclude>
+    <ClInclude Include="include\higgsinputcontext.h"><Filter>Header</Filter></ClInclude>
+    <ClInclude Include="include\higgshandusetransition.h"><Filter>Header</Filter></ClInclude>
+    <ClInclude Include="include\higgshanduseproposals.h"><Filter>Header</Filter></ClInclude>
+    <ClInclude Include="include\higgssupport.h"><Filter>Header</Filter></ClInclude>
+    <ClInclude Include="include\hand_support.h"><Filter>Header</Filter></ClInclude>
+    <ClInclude Include="include\higgshandparts.h"><Filter>Header</Filter></ClInclude>
+    <ClInclude Include="include\higgshandpartsnative.h"><Filter>Header</Filter></ClInclude>
+    <ClInclude Include="include\hand_parts.h"><Filter>Header</Filter></ClInclude>
+    <ClInclude Include="include\hand_parts_native.h"><Filter>Header</Filter></ClInclude>
+    <ClInclude Include="include\interop\planck_synergy.h"><Filter>Header</Filter></ClInclude>
+    <ClInclude Include="include\interop\planck_physical_interop.h"><Filter>Header</Filter></ClInclude>
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="src\hand_physical_policy.cpp"><Filter>Source</Filter></ClCompile>
+    <ClCompile Include="src\physical_policy_runtime.cpp"><Filter>Source</Filter></ClCompile>
+    <ClCompile Include="src\hand_physical_policy_native.cpp"><Filter>Source</Filter></ClCompile>
+    <ClInclude Include="include\higgsphysicalpolicy.h"><Filter>Header</Filter></ClInclude>
+    <ClInclude Include="include\hand_physical_policy.h"><Filter>Header</Filter></ClInclude>
   </ItemGroup>
 </Project>

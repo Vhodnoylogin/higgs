@@ -1,5 +1,7 @@
 # HIGGS ([Nexus link](https://www.nexusmods.com/skyrimspecialedition/mods/43930))
 
+For the proposed hand, input and possession services, see the [public interface and consumer example](docs/hand-services.md).
+
 This mod is complicated.
 
 To build from source, it requires object definitions / headers similar to those belonging to havok 2010.2. I will not be providing these, nor do I claim to have them myself.

@@ -1,0 +1,9 @@
+; Merge this section into Data\SKSE\Plugins\higgs_vr.ini.
+; Case-insensitive registered client names. Higher priority wins.
+; Routed candidates use the assigned executor PROVIDER's priority.
+; Missing entries use that client's registered default. Equal scores use client
+; registration order, then candidate submission order (slot-specific ordering).
+; Empty Priorities clears overrides. Invalid/duplicate/overflow values preserve
+; the previous complete map and log a warning. Up to 64 entries / 8190 characters.
+[HandBroker]
+Priorities=BodySlots=20,ExampleClimbing=50,ExamplePouchProvider=30
