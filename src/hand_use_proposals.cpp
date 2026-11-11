@@ -1,6 +1,7 @@
 #include "hand_broker.h"
 #include <algorithm>
 #include <cstring>
+#include <tuple>
 namespace HiggsHands {
 HIGGS_HandStatus Broker::ProposeHandUse(uint64_t owner, const HIGGS_HandUseProposalRequest &r,
                                        uint64_t &out, Clock now)
@@ -59,15 +60,16 @@ void Broker::ResolveHandUseProposalsLocked(Clock now)
             bool overridden = false;
             a.proposalPriority = client ? PriorityLocked(*client, overridden) : 0;
             a.proposalDecisionFlags = overridden ? HIGGS_DECISION_USER_PRIORITY : HIGGS_DECISION_CLIENT_PRIORITY;
-            a.proposalDecisionFlags |= HIGGS_DECISION_REGISTRATION_ORDER | HIGGS_DECISION_CANDIDATE_ORDER;
+            a.proposalDecisionFlags |= HIGGS_DECISION_STABLE_ID;
             pending[count++] = &a;
         }
     if (!count) return;
     const auto round = nextUseRound_++;
-    std::sort(pending.begin(), pending.begin() + count, [](const Action *left, const Action *right) {
+    std::sort(pending.begin(), pending.begin() + count, [&](const Action *left, const Action *right) {
         if (left->proposalPriority != right->proposalPriority) return left->proposalPriority > right->proposalPriority;
-        if (left->request.owner != right->request.owner) return left->request.owner < right->request.owner;
-        return left->request.requestId < right->request.requestId;
+        const auto &a = left->request, &b = right->request;
+        if (a.owner != b.owner) return ClientKeyLocked(a.owner) < ClientKeyLocked(b.owner);
+        return std::tie(a.actionId, a.contextId, a.contextGeneration) < std::tie(b.actionId, b.contextId, b.contextGeneration);
     });
     for (size_t n = 0; n < count; ++n) {
         auto &a = *pending[n];

@@ -37,7 +37,7 @@ typedef struct HIGGS_HandUseProposalsInterface {
 #pragma pack(pop)
 /* Nonbutton admission only; pending proposals carry NO grant or mutation authority.
  * The next HIGGS main maintenance selects a disjoint set in effective user-priority
- * order, then client-registration and proposal order. Both hands are all-or-none.
+ * order, then stable client ID, use kind, context ID and generation. Both hands are all-or-none.
  * Existing uses are never preempted. A pending proposal is one-shot, not a retry.
  * Deadline1..1000ms bounds collection; use.durationMs begins on acceptance.
  * All requested generations must be current at proposal AND selection. UI/load,
