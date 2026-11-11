@@ -13,8 +13,16 @@ For the existing mouth and shoulder interactions, an optional spatial detector c
 
 ## Further services
 
-Plugins discover each table individually. Continuous world or item interactions can request hand sessions, physical operations, support, transitions and release under the same authority. Transactions distinguish accepted requests from observed inventory and physical results. PLANCK can supply NPC endpoints, and PPB can supply anatomical geometry for the native owner to apply. [Hand sessions](../include/higgshanduse.h) · [Physical operations](../include/higgshandoperations.h) · [Transactions](../include/higgstransactions.h) · [Hand parts](../include/higgshandparts.h)
+Plugins discover each table individually. Continuous world or item interactions can request hand sessions, physical operations, support, transitions and release under the same authority. Transactions distinguish accepted requests from observed inventory and physical results. PLANCK can supply NPC endpoints, and PPB can supply anatomical geometry for the native owner to apply. [Hand sessions](../include/higgshanduse.h) В· [Physical operations](../include/higgshandoperations.h) В· [Transactions](../include/higgstransactions.h) В· [Hand parts](../include/higgshandparts.h)
 
-The public headers specify the calling conventions and lifetimes. The supplied C probe exercises table discovery from a DLL. In an x64 MSVC developer shell, compile `tests/hand_dll_probe.c` with `cl /TC /std:c11 /Iinclude tests/hand_dll_probe.c`, then run `hand_dll_probe.exe <path-to-higgs_vr.dll>`. Running-game interaction, input timing and physical behavior still need testing.
+The production broker tests run independently of Skyrim and the SDKs:
 
-The full proposal and the current implementation record are maintained in Body Pouches. [Concept](https://github.com/Vhodnoylogin/body-pouches/blob/main/docs/trinity-synergy/concept-en.md) · [Implementation record](https://github.com/Vhodnoylogin/body-pouches/blob/main/docs/trinity-synergy/implementation-status.md)
+```sh
+cmake -S tests -B ../higgs-service-tests
+cmake --build ../higgs-service-tests --config Release
+ctest --test-dir ../higgs-service-tests -C Release --output-on-failure
+```
+
+They exercise controller arbitration and priority, grant ownership, one-shot dispatch, callback drainage and native-region fallback with synthetic observations. The public headers specify the calling conventions and lifetimes. The supplied C probe exercises table discovery from a DLL. In an x64 MSVC developer shell, compile `tests/hand_dll_probe.c` with `cl /TC /std:c11 /Iinclude tests/hand_dll_probe.c`, then run `hand_dll_probe.exe <path-to-higgs_vr.dll>`. Running-game interaction, input timing and physical behavior still need testing.
+
+The full proposal and the current implementation record are maintained in Body Pouches. [Concept](https://github.com/Vhodnoylogin/body-pouches/blob/main/docs/trinity-synergy/concept-en.md) В· [Implementation record](https://github.com/Vhodnoylogin/body-pouches/blob/main/docs/trinity-synergy/implementation-status.md)
