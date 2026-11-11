@@ -640,6 +640,18 @@ void UserPriorities()
     CHECK(f.broker.ConfigurePriorities(""));
     CHECK(f.Input(HIGGS_HAND_LEFT, HIGGS_INPUT_GRIP, true));
     CHECK(high.executions == 1);
+    for (bool reverse : {false, true}) {
+        Fixture tied;
+        Consumer first(tied, reverse ? "alpha" : "zeta"), second(tied, reverse ? "zeta" : "alpha");
+        auto &winner = reverse ? first : second;
+        CHECK(tied.Input(HIGGS_HAND_LEFT, HIGGS_INPUT_GRIP, true));
+        CHECK(winner.executions == 1 && first.executions + second.executions == 1);
+        CHECK(!tied.broker.Decision(winner.client, winner.lastInput, d));
+        CHECK((d.reason & HIGGS_DECISION_STABLE_ID) && !(d.reason & HIGGS_DECISION_REGISTRATION_ORDER));
+        HIGGS_HandClientInfo duplicate{sizeof(duplicate), 0, " ALPHA "};
+        uint64_t unchanged = 42;
+        CHECK(tied.broker.Register(duplicate, unchanged) == HIGGS_HAND_CONFLICT && unchanged == 42);
+    }
     Fixture routed;
     Consumer recognizer(routed, "recognizer", 1000), provider(routed, "provider", 1),
         competitor(routed, "competitor", 10);

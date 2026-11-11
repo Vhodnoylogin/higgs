@@ -15,6 +15,7 @@
 #include <memory>
 #include <mutex>
 #include <string>
+#include <string_view>
 #include <thread>
 #include <vector>
 
@@ -188,6 +189,7 @@ class Broker
     HIGGS_HandStatus Add(HIGGS_HandClient, uint32_t, HIGGS_RecognizerCallback, HIGGS_ExecutorCallback,
                          HIGGS_HandEventCallback, void *, uint64_t &);
     Client *ClientLocked(uint64_t);
+    std::string_view ClientKeyLocked(uint64_t);
     std::shared_ptr<Registration> RegistrationLocked(uint64_t);
     Action *ActionLocked(uint64_t);
     Action *NewActionLocked();

@@ -56,13 +56,13 @@ void ProposalPriorityRounds()
     auto winner=ProposalState(*f,f->other,two);
     CHECK(winner.use.active && winner.effectivePriority==50 && (winner.decisionFlags&HIGGS_DECISION_USER_PRIORITY));
     CHECK(ProposalState(*f,f->owner,one).stage==HIGGS_USE_PROPOSAL_REJECTED);
-    // Equal priority uses documented registration order, not proposal order.
+    // With equal priority, the stable ID 'other' precedes 'primary' even though it registered later.
     f=std::make_unique<Fixture>();
     CHECK(!f->broker.Executor(f->other,Fixture::Notify,f.get(),exec));
     f->broker.ConfigurePriorities("primary=0,other=0");
     CHECK(!f->broker.ProposeHandUse(f->other,Proposal(*f,f->other,exec,1),two,Now()));
     CHECK(!f->broker.ProposeHandUse(f->owner,Proposal(*f,f->owner,f->executor,1),one,Now()));
-    f->broker.DrainHandUses(); CHECK(ProposalState(*f,f->owner,one).use.active);
+    f->broker.DrainHandUses(); CHECK(ProposalState(*f,f->other,two).use.active);
     // Atomic Both rejection leaves a disjoint lower-priority right proposal usable.
     f=std::make_unique<Fixture>();
     CHECK(!f->broker.Executor(f->other,Fixture::Notify,f.get(),exec));

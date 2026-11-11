@@ -161,6 +161,11 @@ Broker::Client *Broker::ClientLocked(uint64_t id)
             return &c;
     return nullptr;
 }
+std::string_view Broker::ClientKeyLocked(uint64_t id)
+{
+    const auto client = ClientLocked(id);
+    return client ? std::string_view(client->info.name) : std::string_view{};
+}
 std::shared_ptr<Broker::Registration> Broker::RegistrationLocked(uint64_t id)
 {
     for (auto &r : registrations_)
@@ -197,15 +202,21 @@ HIGGS_HandStatus Broker::Register(const HIGGS_HandClientInfo &info, uint64_t &ou
     if (info.structSize < sizeof(info) || !info.name[0] || !std::memchr(info.name, 0, sizeof(info.name)))
         return HIGGS_HAND_INVALID_ARGUMENT;
     std::lock_guard lock(mutex_);
+    const auto name = Name(info.name);
+    if (name.empty() || name.find_first_of(",=") != std::string::npos)
+        return HIGGS_HAND_INVALID_ARGUMENT;
     size_t active = 0;
-    for (auto &c : clients_)
-        if (c.active)
-            ++active;
+    for (const auto &c : clients_) {
+        if (!c.active) continue;
+        if (name == c.info.name) return HIGGS_HAND_CONFLICT;
+        ++active;
+    }
     if (active >= 64)
         return HIGGS_HAND_CAPACITY;
     Client c{};
     c.id = nextToken_++;
     c.info = info;
+    std::memcpy(c.info.name, name.c_str(), name.size() + 1);
     auto it = std::find_if(clients_.begin(), clients_.end(), [](const Client &v) { return !v.active; });
     if (it == clients_.end())
         clients_.push_back(c);
@@ -1221,6 +1232,12 @@ bool Broker::Input(uint32_t hand, uint32_t button, bool down, Clock now)
         Action *winner = nullptr;
         int32_t priority = (std::numeric_limits<int32_t>::min)();
         bool winnerOverride = false;
+        uint32_t tieRules = 0;
+        // A recognizer may intentionally submit several offers for the same provider
+        // in domain-specific priority order. Across clients use their stable INI IDs.
+        const auto providerKey = [&](const Action &a) {
+            return std::make_pair(ClientKeyLocked(a.request.owner), ClientKeyLocked(a.recognizerOwner));
+        };
         for (auto &a : actions_)
             if (a.request.inputId == input.inputId && !a.selected && !a.result.stage)
             {
@@ -1234,12 +1251,17 @@ bool Broker::Input(uint32_t hand, uint32_t button, bool down, Clock now)
                     RoutedLocked(a.request.executor, a.recognizerOwner, a.request.physicalHands) &&
                     contextGeneration == contextGeneration_ && !contextMenus_ &&
                     input.epoch == snapshot_.epoch && snapshot_.hands[hi].generation == input.handGeneration &&
-                    InputEligibleLocked(a.request.physicalHands, a.request.owner, a.inputSpec.existingGrant) &&
-                    (!winner || effective > priority ||
-                     (effective == priority &&
-                      (client->id < winner->request.owner ||
-                       (client->id == winner->request.owner && a.request.requestId < winner->request.requestId)))))
+                    InputEligibleLocked(a.request.physicalHands, a.request.owner, a.inputSpec.existingGrant))
                 {
+                    if (winner && effective < priority) continue;
+                    if (winner && effective == priority) {
+                        const auto current = providerKey(a), previous = providerKey(*winner);
+                        tieRules |= current == previous ? HIGGS_DECISION_CANDIDATE_ORDER : HIGGS_DECISION_STABLE_ID;
+                        if (current > previous || (current == previous && a.request.requestId > winner->request.requestId))
+                            continue;
+                    } else {
+                        tieRules = 0;
+                    }
                     winner = &a;
                     priority = effective;
                     winnerOverride = overridden;
@@ -1282,8 +1304,7 @@ bool Broker::Input(uint32_t hand, uint32_t button, bool down, Clock now)
             d.grant = request.grant;
             d.requestId = request.requestId;
             d.effectivePriority = priority;
-            d.reason = (winnerOverride ? HIGGS_DECISION_USER_PRIORITY : HIGGS_DECISION_CLIENT_PRIORITY) |
-                       HIGGS_DECISION_REGISTRATION_ORDER | HIGGS_DECISION_CANDIDATE_ORDER;
+            d.reason = (winnerOverride ? HIGGS_DECISION_USER_PRIORITY : HIGGS_DECISION_CLIENT_PRIORITY) | tieRules;
         }
         consumed_[hi][bi] = down && consumed;
         RefreshLocked();

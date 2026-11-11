@@ -94,8 +94,9 @@ extern "C"
     {
         HIGGS_DECISION_USER_PRIORITY = 1u,
         HIGGS_DECISION_CLIENT_PRIORITY = 2u,
-        HIGGS_DECISION_REGISTRATION_ORDER = 4u,
-        HIGGS_DECISION_CANDIDATE_ORDER = 8u
+        HIGGS_DECISION_REGISTRATION_ORDER = 4u, /* reserved for earlier drafts */
+        HIGGS_DECISION_CANDIDATE_ORDER = 8u, /* offers of the same recognizer for one provider */
+        HIGGS_DECISION_STABLE_ID = 16u
     };
     enum
     {
@@ -134,7 +135,7 @@ extern "C"
     {
         uint32_t structSize;
         int32_t userPriority;
-        char name[64];
+        char name[64]; /* Unique stable client/INI ID, trimmed and case-insensitive; excludes ',' and '='. */
     } HIGGS_HandClientInfo;
     typedef struct HIGGS_HandRecord
     {
